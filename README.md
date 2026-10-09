@@ -47,7 +47,7 @@ npm start
 | Variable | Default | What it does |
 |---|---|---|
 | `NEWS_TIMES` | 1,4,7,10,13,16,19,22 | Local hours (0–23) to post 1 news story |
-| `CHASE_CHANNEL` | legendary-pulls | Channel for grail reveals; empty = off |
+| `CHASE_CHANNEL` | pulls-of-the-day | Channel for grail reveals; empty = off |
 | `GRAIL_TIMES` | 0,3,6,9,12,15,18,21 | Local hours (0–23) to post 1 grail reveal |
 | `GRAIL_MIN_PRICE` | 1500 | Lowest card value (USD) for grail reveals |
 

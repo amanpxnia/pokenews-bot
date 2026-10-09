@@ -11,7 +11,7 @@ const CHANNEL_ID = process.env.CHANNEL_ID;
 // One news story per slot (local hours). Default: 8 a day, every 3 hours, between the grail slots.
 const NEWS_TIMES = parseHours(process.env.NEWS_TIMES, '1,4,7,10,13,16,19,22');
 const MAX_AGE_HOURS = 48; // don't post stories older than this
-const CHASE_CHANNEL = (process.env.CHASE_CHANNEL ?? 'legendary-pulls').replace(/^#/, ''); // empty = off
+const CHASE_CHANNEL = (process.env.CHASE_CHANNEL ?? 'pulls-of-the-day').replace(/^#/, ''); // empty = off
 // One grail reveal per slot (local hours). Default: 8 a day, every 3 hours.
 const GRAIL_TIMES = parseHours(process.env.GRAIL_TIMES, '0,3,6,9,12,15,18,21');
 const FEED_GAP_MS = 3000; // pause between feeds so Reddit doesn't rate-limit us
