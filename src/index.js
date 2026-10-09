@@ -1,10 +1,15 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, EmbedBuilder, Events, PermissionFlagsBits } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, Events, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const { loadFeeds, fetchFeed, truncate } = require('./feeds');
 const state = require('./state');
 const chase = require('./chase');
 const { isRelevant } = require('./relevance');
 const { parseHours, currentSlot } = require('./schedule');
+const tickets = require('./tickets');
+const levels = require('./levels');
+const counter = require('./counter');
+// MEE6 replacements, switched on in features.json: { "tickets": true, "levels": true, "memberCounter": true }
+const FEATURES = require('../features.json');
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const CHANNEL_ID = process.env.CHANNEL_ID;
@@ -151,6 +156,43 @@ async function tick(channel) {
   }
 }
 
+/** /rank and /leaderboard for the levels feature. */
+async function levelCommand(interaction) {
+  if (interaction.commandName === 'rank') {
+    const user = interaction.options.getUser('member') || interaction.user;
+    const r = levels.rankOf(user.id);
+    if (!r) return interaction.reply({ content: `${user.username} hasn't earned any XP yet.`, flags: MessageFlags.Ephemeral });
+    return interaction.reply({
+      embeds: [
+        new EmbedBuilder()
+          .setColor('#D6F03E')
+          .setAuthor({ name: user.username, iconURL: user.displayAvatarURL() })
+          .setDescription(`**Level ${r.level}** · Rank #${r.position}\n${r.into} / ${r.needed} XP to level ${r.level + 1}\n${r.messages} messages`),
+      ],
+    });
+  }
+  if (interaction.commandName === 'leaderboard') {
+    const lines = levels.leaderboard(10).map((u) => `**#${u.position}** ${u.name} · Level ${u.level} · ${u.xp.toLocaleString('en-US')} XP`);
+    return interaction.reply({ embeds: [new EmbedBuilder().setColor('#D6F03E').setTitle('🏆 Card Outpost Leaderboard').setDescription(lines.join('\n') || 'No XP yet.')] });
+  }
+}
+
+/** Start whichever MEE6 replacements are switched on in features.json. */
+async function startFeatures(guild) {
+  log(`Features: tickets ${FEATURES.tickets ? 'on' : 'off'}, levels ${FEATURES.levels ? 'on' : 'off'}, member counter ${FEATURES.memberCounter ? 'on' : 'off'}.`);
+  if (FEATURES.tickets) await tickets.ensurePanel(guild, log).catch((e) => log('  ! ticket panel failed:', e.message));
+  if (FEATURES.memberCounter) counter.start(guild, log);
+  if (FEATURES.levels) {
+    await levels.importFromMee6(guild.id, log).catch((e) => log('  ! MEE6 level import failed:', e.message));
+    await guild.commands
+      .set([
+        { name: 'rank', description: 'Show your level and XP (or another member’s)', options: [{ type: 6, name: 'member', description: 'Member to look up', required: false }] },
+        { name: 'leaderboard', description: 'Top 10 members by XP' },
+      ])
+      .catch((e) => log('  ! registering /rank and /leaderboard failed:', e.message));
+  }
+}
+
 async function main() {
   if (!TOKEN || !CHANNEL_ID) {
     console.error('Missing DISCORD_TOKEN or CHANNEL_ID. Copy .env.example to .env and fill it in.');
@@ -159,7 +201,26 @@ async function main() {
 
   // Never auto-retry a request: if an upload is slow, a retry can post the same message twice
   // (Discord already got the first one). Give slow uploads more time instead.
-  const client = new Client({ intents: [GatewayIntentBits.Guilds], rest: { timeout: 60e3, retries: 0 } });
+  // GuildMessages lets the levels feature see that a message was sent (not its text)
+  const client = new Client({
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
+    rest: { timeout: 60e3, retries: 0 },
+  });
+
+  client.on(Events.InteractionCreate, async (interaction) => {
+    if (FEATURES.tickets && (await tickets.handle(interaction, log))) return;
+    if (FEATURES.levels && interaction.isChatInputCommand()) await levelCommand(interaction);
+  });
+
+  client.on(Events.MessageCreate, async (message) => {
+    if (!FEATURES.levels || !message.guild || message.author.bot || message.system) return;
+    const level = levels.onMessage(message.author.id, message.author.username);
+    if (level) {
+      await message.channel
+        .send({ content: `GG ${message.author}, you just advanced to level ${level}!`, allowedMentions: { users: [message.author.id] } })
+        .catch(() => {});
+    }
+  });
 
   client.once(Events.ClientReady, async (c) => {
     log(`Logged in as ${c.user.tag}`);
@@ -180,6 +241,8 @@ async function main() {
       console.error(`Bot needs View Channel, Send Messages and Embed Links in #${channel.name}.`);
       process.exit(1);
     }
+
+    await startFeatures(channel.guild);
 
     const at = (hours) => hours.map((h) => `${h}:00`).join(', ');
     log(`News → #${channel.name}, 1 story at ${at(NEWS_TIMES)}.`);
