@@ -10,7 +10,6 @@ A Discord bot for the Card Outpost server. It posts:
   - **Tickets:** an "Open ticket" button in #support creates a private `<number>-<username>` channel with Claim / Close / Reopen / Delete. Deleting posts a transcript to #moderator-only. Settings: `TICKET_PANEL_CHANNEL` (support), `TICKET_CATEGORY` (Help), `TICKET_STAFF_ROLES` (Support,Moderators), `TICKET_LOG_CHANNEL` (moderator-only).
   - **Levels:** 15–25 XP per message (once a minute), MEE6's level curve, level-up messages, `/rank` and `/leaderboard`. Existing MEE6 levels are imported automatically the first time it's switched on.
   - **Member counter:** keeps the "Total Members: 1.47K" channel name up to date.
-  - **X feed:** posts each new tweet from `X_HANDLE` (cardoutpostX) to `X_FEED_CHANNEL` (x-feed), checked every 30 minutes, no @everyone. Uses X's public embed timeline, so it needs no API key, but X could change it without notice.
 
 **Sources (edit `feeds.json` to change):**
 
@@ -104,7 +103,7 @@ Every push to `main` redeploys automatically.
 
 - `src/index.js` – connects to Discord, runs the news / grail / meme schedule
 - `src/relevance.js` – the strict news topic filter
-- `src/tickets.js`, `src/levels.js`, `src/counter.js`, `src/xfeed.js` – MEE6 replacements, switched on in `features.json`
+- `src/tickets.js`, `src/levels.js`, `src/counter.js` – MEE6 replacements, switched on in `features.json`
 - `src/schedule.js` – daily posting slots
 - `src/feeds.js` – fetches and cleans up feed items (titles, summaries, images)
 - `src/state.js` – remembers posted items in `data/seen.json` (delete it to start fresh)
