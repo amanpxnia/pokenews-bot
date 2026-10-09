@@ -1,5 +1,6 @@
 {
   "tickets": false,
   "levels": false,
-  "memberCounter": false
+  "memberCounter": false,
+  "xFeed": false
 }

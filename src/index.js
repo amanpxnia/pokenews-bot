@@ -8,7 +8,8 @@ const { parseHours, currentSlot } = require('./schedule');
 const tickets = require('./tickets');
 const levels = require('./levels');
 const counter = require('./counter');
-// MEE6 replacements, switched on in features.json: { "tickets": true, "levels": true, "memberCounter": true }
+const xfeed = require('./xfeed');
+// MEE6 replacements, switched on in features.json: tickets, levels, memberCounter, xFeed
 const FEATURES = require('../features.json');
 
 const TOKEN = process.env.DISCORD_TOKEN;
@@ -179,9 +180,10 @@ async function levelCommand(interaction) {
 
 /** Start whichever MEE6 replacements are switched on in features.json. */
 async function startFeatures(guild) {
-  log(`Features: tickets ${FEATURES.tickets ? 'on' : 'off'}, levels ${FEATURES.levels ? 'on' : 'off'}, member counter ${FEATURES.memberCounter ? 'on' : 'off'}.`);
+  log(`Features: ${Object.entries(FEATURES).map(([k, on]) => `${k} ${on ? 'on' : 'off'}`).join(', ')}.`);
   if (FEATURES.tickets) await tickets.ensurePanel(guild, log).catch((e) => log('  ! ticket panel failed:', e.message));
   if (FEATURES.memberCounter) counter.start(guild, log);
+  if (FEATURES.xFeed) xfeed.start(guild, log);
   if (FEATURES.levels) {
     await levels.importFromMee6(guild.id, log).catch((e) => log('  ! MEE6 level import failed:', e.message));
     await guild.commands
