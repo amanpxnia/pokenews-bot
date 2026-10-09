@@ -78,10 +78,24 @@ pm2 stop pokenews      # stop it
 
 To move it to a server later, copy the folder over and run the same commands — nothing is Mac-specific.
 
+## Deploying to Railway (runs 24/7)
+
+The repo includes a `Dockerfile` (Node 20 + Python/Pillow for the grail graphics + Tesseract for reading slab labels), so Railway builds it as-is.
+
+1. **Stop any copy running on your Mac** (`pm2 stop pokenews` or close it). Two copies would double-post.
+2. On [railway.com](https://railway.com): **New Project → Deploy from GitHub repo** → pick this repo.
+3. In the service's **Variables** tab, add everything from your `.env`: `DISCORD_TOKEN`, `CHANNEL_ID`, `POLL_MINUTES`, `FIRST_RUN_POSTS_PER_FEED`, `MAX_POSTS_PER_FEED`, `REACTIONS`, `CHASE_CHANNEL`, `CHASE_TIMES`, `GRAIL_MIN_PRICE`.
+   Posting times use India time by default (`TZ=Asia/Kolkata`); add a `TZ` variable to change it.
+4. **Add a volume** (right-click the service → *Attach volume*) mounted at **`/app/data`**. This keeps the "already posted" memory across redeploys; without it, every redeploy re-posts the newest item from each feed and may repeat a grail slot.
+5. Deploy. The **Deploy Logs** should show `Logged in as …` and the posting schedule.
+
+Every push to `main` redeploys automatically.
+
 ## Files
 
 - `src/index.js` – connects to Discord, runs the check loop, posts embeds
 - `src/feeds.js` – fetches and cleans up feed items (titles, summaries, images)
 - `src/state.js` – remembers posted items in `data/seen.json` (delete it to start fresh)
 - `src/check-feeds.js` – feed health check
-- `src/chase.js` – grail posts (4 a day): graded cards worth $1,500+, mixed 50% Pokémon / 20% One Piece / 30% baseball & basketball (game read from the PSA slab label by `scripts/read_label.swift`), with a "GRAIL PULLED" graphic drawn by `scripts/render_card.py` (needs Python 3 + Pillow; font/logo in `assets/`)
+- `Dockerfile` – container for Railway or any Linux host
+- `src/chase.js` – grail posts (4 a day): graded cards worth $1,500+, mixed 50% Pokémon / 20% One Piece / 30% baseball & basketball (game and year read from the PSA slab label: `scripts/read_label.swift` on a Mac, `scripts/read_label.py` + Tesseract on Linux), with a "GRAIL PULLED" graphic drawn by `scripts/render_card.py` (needs Python 3 + Pillow; font/logo in `assets/`)

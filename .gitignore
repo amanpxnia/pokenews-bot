@@ -6,3 +6,4 @@ backups/
 previews/
 onboarding-drafts.md
 .DS_Store
+.ctest/

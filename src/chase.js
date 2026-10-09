@@ -11,8 +11,9 @@ const FEED = 'https://www.cardoutpost.com/api/cards/showroom-feed';
 const STATE_FILE = path.join(__dirname, '..', 'data', 'chase.json');
 const CATEGORY_FILE = path.join(__dirname, '..', 'data', 'card-categories.json');
 const RENDER_SCRIPT = path.join(__dirname, '..', 'scripts', 'render_card.py');
-const LABEL_SRC = path.join(__dirname, '..', 'scripts', 'read_label.swift');
+const LABEL_SRC = path.join(__dirname, '..', 'scripts', 'read_label.swift'); // macOS (Vision OCR)
 const LABEL_BIN = path.join(__dirname, '..', 'bin', 'read_label');
+const LABEL_PY = path.join(__dirname, '..', 'scripts', 'read_label.py'); // Linux/servers (Tesseract OCR)
 const run = promisify(execFile);
 
 const MIN_PRICE = Number(process.env.GRAIL_MIN_PRICE) || 1500;
@@ -74,8 +75,12 @@ function prettyName(name) {
 
 const money = (n) => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
-/** Text on the PSA slab label, read with macOS's built-in text recognition. */
+/** Text on the PSA slab label: macOS's built-in text recognition on a Mac, Tesseract elsewhere (e.g. Railway). */
 async function readLabel(photoPath) {
+  if (process.platform !== 'darwin') {
+    const { stdout } = await run('python3', [LABEL_PY, photoPath], { timeout: 60000 });
+    return stdout;
+  }
   if (!fs.existsSync(LABEL_BIN)) {
     fs.mkdirSync(path.dirname(LABEL_BIN), { recursive: true });
     await run('swiftc', ['-O', LABEL_SRC, '-o', LABEL_BIN], { timeout: 300000 });
@@ -96,7 +101,8 @@ function categorize(label) {
   return 'other';
 }
 
-const yearOf = (label) => (label.match(/^\s*((?:19|20)\d{2})\b/m) || [])[1] || null;
+// first "1999 POKEMON…" / "2018 TOPPS…" style year+word on the label (OCR may add stray characters before it)
+const yearOf = (label) => (label.match(/\b((?:19|20)\d{2})\s+[A-Z]/) || [])[1] || null;
 
 async function downloadPhoto(card, dir) {
   const res = await fetch(card.imageUrl, { signal: AbortSignal.timeout(30000) });
