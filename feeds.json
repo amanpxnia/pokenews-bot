@@ -1,0 +1,120 @@
+[
+  {
+    "name": "Official Pokémon (YouTube)",
+    "category": "Official",
+    "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCFctpiB_Hnlk3ejWfHqSm6Q",
+    "color": "#FFCB05",
+    "enabled": true
+  },
+  {
+    "name": "PokéBeach",
+    "category": "Fan news",
+    "url": "https://www.pokebeach.com/forums/forums/front-page-news.18/index.rss",
+    "color": "#2A75BB",
+    "enabled": true
+  },
+  {
+    "name": "Google News: Pokémon",
+    "category": "News",
+    "url": "https://news.google.com/rss/search?q=Pok%C3%A9mon+when:1d&hl=en-US&gl=US&ceid=US:en",
+    "color": "#4285F4",
+    "enabled": true,
+    "maxPerPoll": 3,
+    "excludeSources": [
+      "facebook.com",
+      "instagram.com",
+      "x.com",
+      "twitter.com",
+      "tiktok.com",
+      "youtube",
+      "youtu.be",
+      "imdb.com",
+      "opencritic.com",
+      "reddit.com"
+    ],
+    "titleMustInclude": [
+      "pokémon",
+      "pokemon",
+      "pikachu",
+      "pokémon go",
+      "tcg"
+    ]
+  },
+  {
+    "name": "Google News: Pokémon GO",
+    "category": "News",
+    "url": "https://news.google.com/rss/search?q=%22Pok%C3%A9mon+GO%22+when:1d&hl=en-US&gl=US&ceid=US:en",
+    "color": "#1E88E5",
+    "enabled": true,
+    "maxPerPoll": 2,
+    "excludeSources": [
+      "facebook.com",
+      "instagram.com",
+      "x.com",
+      "twitter.com",
+      "tiktok.com",
+      "youtube",
+      "youtu.be",
+      "imdb.com",
+      "opencritic.com",
+      "reddit.com"
+    ],
+    "titleMustInclude": [
+      "pokémon",
+      "pokemon",
+      "pikachu",
+      "pokémon go",
+      "tcg"
+    ]
+  },
+  {
+    "name": "r/pokemon (News flair)",
+    "category": "Reddit",
+    "url": "https://www.reddit.com/r/pokemon/search.rss?q=flair%3ANews&restrict_sr=1&sort=new&limit=10",
+    "color": "#FF4500",
+    "enabled": true,
+    "maxPerPoll": 3
+  },
+  {
+    "name": "r/PokemonTCG",
+    "category": "Reddit",
+    "url": "https://www.reddit.com/r/PokemonTCG/top/.rss?t=day&limit=10",
+    "color": "#FF4500",
+    "enabled": true,
+    "maxPerPoll": 2
+  },
+  {
+    "name": "r/TheSilphRoad (Pokémon GO)",
+    "category": "Reddit",
+    "url": "https://www.reddit.com/r/TheSilphRoad/top/.rss?t=day&limit=10",
+    "color": "#FF4500",
+    "enabled": false,
+    "maxPerPoll": 2
+  },
+  {
+    "name": "r/PokemonMemes",
+    "category": "Memes",
+    "type": "memes",
+    "channel": "memes",
+    "url": "https://www.reddit.com/r/PokemonMemes/top/.rss?t=day&limit=15",
+    "color": "#FF4500",
+    "enabled": true,
+    "maxPerPoll": 3
+  },
+  {
+    "name": "PokéJungle",
+    "category": "Fan news",
+    "url": "https://pokejungle.net/feed/",
+    "color": "#3B8C3B",
+    "enabled": false,
+    "note": "Blocked by Cloudflare bot protection (403)"
+  },
+  {
+    "name": "Pokémon GO Hub",
+    "category": "Fan news",
+    "url": "https://pokemongohub.net/feed/",
+    "color": "#1E88E5",
+    "enabled": false,
+    "note": "Blocked by Cloudflare bot protection (403)"
+  }
+]

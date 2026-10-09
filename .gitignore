@@ -1,0 +1,8 @@
+node_modules/
+.env
+data/
+bin/
+backups/
+previews/
+onboarding-drafts.md
+.DS_Store
