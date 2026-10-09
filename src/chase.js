@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
+const { currentSlot } = require('./schedule');
 
 const FEED = 'https://www.cardoutpost.com/api/cards/showroom-feed';
 const STATE_FILE = path.join(__dirname, '..', 'data', 'chase.json');
@@ -154,7 +155,7 @@ async function renderGraphic(photo, dir, { title, year, grade, price }) {
   }
 }
 
-// Same layout as the hand-made #pulls-of-the-day posts: big heading lines, @everyone, and the graphic attached.
+// Same layout as the hand-made #pulls-of-the-day posts: big heading lines and the graphic attached (no @everyone ping).
 function buildMessage({ card, year }, graphic) {
   const ext = (card.imageUrl.match(/\.(jpe?g|png|webp)(?:\?|$)/i) || [, 'jpg'])[1];
   return {
@@ -162,14 +163,13 @@ function buildMessage({ card, year }, graphic) {
       '# 🏆  GRAIL OF THE DAY',
       `# ${[year, prettyName(card.name), `PSA ${card.gradeDisplay}`].filter(Boolean).join(' ')}`,
       `# ${money(card.price)}`,
-      '@everyone',
     ].join('\n\n'),
     files: [
       graphic
         ? { attachment: graphic, name: 'grail-pulled.jpg' }
         : { attachment: card.imageUrl, name: `grail-pulled.${ext}` },
     ],
-    allowedMentions: { parse: ['everyone'] },
+    allowedMentions: { parse: [] },
   };
 }
 
@@ -213,15 +213,6 @@ async function prepareGrail() {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-}
-
-const today = () => new Date().toLocaleDateString('en-CA'); // local YYYY-MM-DD
-
-/** The most recent posting slot that has started today (e.g. "2026-10-07@13"), or null before the first one. */
-function currentSlot(hours) {
-  const now = new Date().getHours();
-  const started = hours.filter((h) => h <= now);
-  return started.length ? `${today()}@${Math.max(...started)}` : null;
 }
 
 /** True if a slot has started and its post hasn't gone out yet (a missed earlier slot isn't made up). */

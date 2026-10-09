@@ -3,27 +3,23 @@ const { Client, GatewayIntentBits, EmbedBuilder, Events, PermissionFlagsBits } =
 const { loadFeeds, fetchFeed, truncate } = require('./feeds');
 const state = require('./state');
 const chase = require('./chase');
+const { isRelevant } = require('./relevance');
+const { parseHours, currentSlot } = require('./schedule');
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const CHANNEL_ID = process.env.CHANNEL_ID;
-const POLL_MINUTES = Math.max(2, Number(process.env.POLL_MINUTES) || 10);
-const FIRST_RUN_POSTS = Math.max(0, Number(process.env.FIRST_RUN_POSTS_PER_FEED ?? 1));
-const MAX_POSTS_PER_FEED = Math.max(1, Number(process.env.MAX_POSTS_PER_FEED) || 5);
-const MAX_AGE_HOURS = 72; // ignore anything older than this, even if unseen
-const REACTIONS = (process.env.REACTIONS ?? '⚡,🔥,💧,🌿,✨')
-  .split(',')
-  .map((r) => r.trim())
-  .filter(Boolean)
-  .slice(0, 5);
+// One news story per slot (local hours). Default: 8 a day, every 3 hours, between the grail slots.
+const NEWS_TIMES = parseHours(process.env.NEWS_TIMES, '1,4,7,10,13,16,19,22');
+const MAX_AGE_HOURS = 48; // don't post stories older than this
 const CHASE_CHANNEL = (process.env.CHASE_CHANNEL ?? 'legendary-pulls').replace(/^#/, ''); // empty = off
-// Local hours to post a chase card, e.g. "9,13,17,21"
-const CHASE_TIMES = (process.env.CHASE_TIMES ?? '9,13,17,21')
-  .split(',')
-  .map((h) => Number(h.trim()))
-  .filter((h) => Number.isInteger(h) && h >= 0 && h <= 23);
+// One grail reveal per slot (local hours). Default: 8 a day, every 3 hours.
+const GRAIL_TIMES = parseHours(process.env.GRAIL_TIMES, '0,3,6,9,12,15,18,21');
 const FEED_GAP_MS = 3000; // pause between feeds so Reddit doesn't rate-limit us
+const TICK_MS = 5 * 60e3; // how often to check whether a slot has started
+const RECENT_TITLES = 300; // remember this many posted headlines to skip the same story from another source
 
 const log = (...args) => console.log(new Date().toISOString(), ...args);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const normalizeTitle = (t) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
@@ -52,62 +48,27 @@ function buildMessage(feed, item) {
   return { embeds: [embed], allowedMentions: { parse: [] } };
 }
 
-async function sendWithReactions(channel, message) {
-  const sent = await channel.send(message);
-  for (const emoji of REACTIONS) {
-    try {
-      await sent.react(emoji);
-    } catch (err) {
-      log(`  ! couldn't add reaction ${emoji}:`, err.message);
-    }
-  }
-  return sent;
-}
+const isFresh = (item, now) => !item.date || now - item.date.getTime() < MAX_AGE_HOURS * 3600e3;
 
 /**
- * Decide which items from a feed to post, update state, and post them.
- * Exported so it can be tested without Discord.
+ * Pick the one story to post: the newest item, across all news feeds, that is fresh, relevant
+ * (Pokémon / One Piece / baseball / basketball cards), not posted before, and not the same
+ * headline as a recent post from another source. Exported so it can be tested without Discord.
  */
-async function processFeed(feed, items, st, post, opts = {}) {
-  const now = opts.now || Date.now();
-  const firstRunPosts = opts.firstRunPosts ?? FIRST_RUN_POSTS;
-  const maxPerFeed = feed.maxPerPoll || opts.maxPerFeed || MAX_POSTS_PER_FEED;
-
-  const postedTitles = opts.postedTitles; // shared across feeds within one check, to skip duplicates
-  const fresh = items.filter(
-    (i) =>
-      // memes must be a full-size image post (skips videos/galleries, which only have a preview thumbnail)
-      (feed.type !== 'memes' || /^https:\/\/i\.redd\.it\//.test(i.image || '')) &&
-      (!i.date || now - i.date.getTime() < MAX_AGE_HOURS * 3600e3) &&
-      !(postedTitles && postedTitles.has(normalizeTitle(i.title)))
-  );
-  let toPost;
-
-  if (!state.hasFeed(st, feed.url)) {
-    // First time we've seen this feed: post only the newest few, remember the rest.
-    toPost = fresh.slice(0, firstRunPosts);
-  } else {
-    toPost = fresh.filter((i) => !state.isSeen(st, feed.url, i.id)).slice(0, maxPerFeed);
-  }
-
-  // Mark everything currently in the feed as seen so backlog never spills over later.
-  state.markSeen(st, feed.url, items.map((i) => i.id));
-
-  // Post oldest first so the channel reads chronologically.
-  let posted = 0;
-  for (const item of toPost.reverse()) {
-    try {
-      await post(buildMessage(feed, item));
-      if (postedTitles) postedTitles.add(normalizeTitle(item.title));
-      posted++;
-    } catch (err) {
-      log(`  ! failed to post "${item.title}":`, err.message);
+function pickNews(fetched, st, now = Date.now()) {
+  const recentTitles = new Set(st.__news?.titles || []);
+  const candidates = [];
+  for (const { feed, items } of fetched) {
+    for (const item of items) {
+      if (!isFresh(item, now) || state.isSeen(st, feed.url, item.id)) continue;
+      if (recentTitles.has(normalizeTitle(item.title)) || !isRelevant(item, feed)) continue;
+      candidates.push({ feed, item });
     }
   }
-  return posted;
+  candidates.sort((a, b) => (b.item.date?.getTime() || 0) - (a.item.date?.getTime() || 0));
+  return { pick: candidates[0] || null, candidates: candidates.length };
 }
 
-let polling = false;
 /** Which channel a feed posts to: its "channel" (name or ID) if set, otherwise the main news channel. */
 async function channelFor(feed, defaultChannel) {
   if (!feed.channel) return defaultChannel;
@@ -123,41 +84,71 @@ async function channelFor(feed, defaultChannel) {
   return ch;
 }
 
-async function poll(channel) {
-  if (polling) return log('Previous check still running, skipping this tick.');
-  polling = true;
-  try {
-    const feeds = loadFeeds(); // re-read each time, so edits to feeds.json apply without restart
-    const st = state.load();
-    let total = 0;
-    const postedTitles = new Set();
-    for (const [i, feed] of feeds.entries()) {
-      if (i > 0) await new Promise((r) => setTimeout(r, FEED_GAP_MS));
-      try {
-        const target = await channelFor(feed, channel);
-        const items = await fetchFeed(feed);
-        const n = await processFeed(feed, items, st, (message) => sendWithReactions(target, message), {
-          postedTitles,
-        });
-        total += n;
-        if (n) log(`  ${feed.name}: posted ${n} to #${target.name}`);
-      } catch (err) {
-        log(`  ! ${feed.name} failed: ${err.message}`);
-      }
-      state.save(st); // save after every feed so a crash mid-run doesn't cause re-posts
-    }
-    log(`Check done — ${total} new item(s) posted from ${feeds.length} feed(s).`);
-  } finally {
-    polling = false;
-  }
+/** Post the newest unposted picture meme from a meme feed (at most one). */
+async function postMeme(feed, items, st, defaultChannel) {
+  const meme = items.find(
+    // full-size image posts only (skips videos/galleries, which only have a preview thumbnail)
+    (i) => /^https:\/\/i\.redd\.it\//.test(i.image || '') && isFresh(i, Date.now()) && !state.isSeen(st, feed.url, i.id)
+  );
+  const firstRun = !state.hasFeed(st, feed.url);
+  state.markSeen(st, feed.url, firstRun ? items.map((i) => i.id) : meme ? [meme.id] : []);
+  if (!meme) return;
+  const target = await channelFor(feed, defaultChannel);
+  await target.send(buildMessage(feed, meme));
+  log(`  meme posted to #${target.name}: ${meme.title}`);
 }
 
-/** Post a chase card if a posting slot has started. Checked every few minutes. */
-async function chaseTick(defaultChannel) {
-  if (!CHASE_CHANNEL || !CHASE_TIMES.length || !chase.isDue(CHASE_TIMES)) return;
+/** At each news slot: fetch every feed, post one news story (and one meme). */
+async function newsTick(channel) {
+  const slot = currentSlot(NEWS_TIMES);
+  const st = state.load();
+  if (!slot || st.__news?.lastSlot === slot) return;
+  // claim the slot first, so a failing feed doesn't make us retry (and hammer Reddit) every few minutes
+  st.__news = { ...(st.__news || {}), lastSlot: slot };
+  state.save(st);
+
+  const fetched = [];
+  for (const [i, feed] of loadFeeds().entries()) {
+    if (i > 0) await sleep(FEED_GAP_MS);
+    try {
+      const items = await fetchFeed(feed);
+      if (feed.type === 'memes') await postMeme(feed, items, st, channel);
+      else fetched.push({ feed, items });
+    } catch (err) {
+      log(`  ! ${feed.name} failed: ${err.message}`);
+    }
+  }
+
+  const { pick, candidates } = pickNews(fetched, st);
+  if (!pick) {
+    log(`News slot ${slot}: no new Pokémon / One Piece / baseball / basketball card story found.`);
+  } else {
+    await channel.send(buildMessage(pick.feed, pick.item));
+    state.markSeen(st, pick.feed.url, [pick.item.id]);
+    st.__news.titles = [...(st.__news.titles || []), normalizeTitle(pick.item.title)].slice(-RECENT_TITLES);
+    log(`News slot ${slot}: posted "${pick.item.title}" (${pick.feed.name}; ${candidates} relevant candidates)`);
+  }
+  state.save(st);
+}
+
+/** At each grail slot: post one grail reveal. */
+async function grailTick(defaultChannel) {
+  if (!CHASE_CHANNEL || !GRAIL_TIMES.length || !chase.isDue(GRAIL_TIMES)) return;
   const target = await channelFor({ channel: CHASE_CHANNEL }, defaultChannel);
-  const grail = await chase.postChase((message) => target.send(message), CHASE_TIMES); // no reactions, like the hand-made pull posts
+  const grail = await chase.postChase((message) => target.send(message), GRAIL_TIMES);
   log(`Grail posted to #${target.name}: ${grail.card.name} ($${grail.card.price}, ${grail.category})`);
+}
+
+let busy = false;
+async function tick(channel) {
+  if (busy) return;
+  busy = true;
+  try {
+    await grailTick(channel).catch((e) => log('  ! grail failed:', e.message));
+    await newsTick(channel).catch((e) => log('  ! news failed:', e.message));
+  } finally {
+    busy = false;
+  }
 }
 
 async function main() {
@@ -189,20 +180,12 @@ async function main() {
       console.error(`Bot needs View Channel, Send Messages and Embed Links in #${channel.name}.`);
       process.exit(1);
     }
-    if (REACTIONS.length && perms && !perms.has([PermissionFlagsBits.AddReactions, PermissionFlagsBits.ReadMessageHistory])) {
-      log(`Warning: bot needs Add Reactions and Read Message History in #${channel.name} to react to posts.`);
-    }
 
-    log(`Posting to #${channel.name} every ${POLL_MINUTES} min.`);
-    await poll(channel);
-    setInterval(() => poll(channel).catch((e) => log('Poll error:', e)), POLL_MINUTES * 60e3);
-
-    if (CHASE_CHANNEL) {
-      log(`Chase cards → #${CHASE_CHANNEL} daily at ${CHASE_TIMES.map((h) => h + ':00').join(', ')}.`);
-      const tick = () => chaseTick(channel).catch((e) => log('  ! chase card failed:', e.message));
-      tick();
-      setInterval(tick, 5 * 60e3);
-    }
+    const at = (hours) => hours.map((h) => `${h}:00`).join(', ');
+    log(`News → #${channel.name}, 1 story at ${at(NEWS_TIMES)}.`);
+    if (CHASE_CHANNEL) log(`Grail reveals → #${CHASE_CHANNEL}, 1 at ${at(GRAIL_TIMES)}.`);
+    await tick(channel);
+    setInterval(() => tick(channel), TICK_MS);
   });
 
   process.on('SIGINT', () => {
@@ -216,4 +199,4 @@ async function main() {
 
 if (require.main === module) main();
 
-module.exports = { processFeed, buildMessage, sendWithReactions, channelFor };
+module.exports = { pickNews, newsTick, buildMessage, channelFor };
