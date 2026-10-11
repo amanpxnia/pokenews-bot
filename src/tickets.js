@@ -29,6 +29,13 @@ const TOPICS = {
   order: { label: 'Order / Shipping', emoji: '📦', description: 'Shipping requests, tracking, damaged or missing cards' },
   payments: { label: 'Withdrawals & Payments', emoji: '💸', description: 'Deposits, withdrawals, buyback, refunds' },
   account: { label: 'Account & Verification', emoji: '🔐', description: 'Login, ID verification, username, profile' },
+  partnership: {
+    label: 'Partnership / B2B',
+    emoji: '🤝',
+    description: 'Business inquiries, collabs, sponsorships, creators',
+    refLabel: 'Company / brand & website', // form labels max 45 chars
+    detailsLabel: 'What would you like to work on together?',
+  },
   other: { label: 'Other', emoji: '💬', description: 'Anything else' },
 };
 
@@ -70,7 +77,7 @@ const panelMessage = () => ({
   ],
 });
 
-/** Post the ticket panel in #support, unless the bot already has one there. */
+/** Post the ticket panel in #support, or update the bot's existing one (e.g. when topics change). */
 async function ensurePanel(guild, log) {
   const channel = guild.channels.cache.find((c) => c.name === SUPPORT_CHANNEL && c.isTextBased());
   if (!channel) return log(`  ! tickets: #${SUPPORT_CHANNEL} not found`);
@@ -78,7 +85,14 @@ async function ensurePanel(guild, log) {
   const existing = recent.find(
     (m) => m.author.id === guild.client.user.id && m.components?.[0]?.components?.[0]?.customId === 'ticket:topic'
   );
-  if (existing) return;
+  if (existing) {
+    const current = existing.components[0].components[0].options.map((o) => o.value).join(',');
+    if (current !== Object.keys(TOPICS).join(',')) {
+      await existing.edit(panelMessage());
+      log(`Tickets: updated the support panel in #${channel.name}.`);
+    }
+    return;
+  }
   await channel.send(panelMessage());
   log(`Tickets: posted the support panel in #${channel.name}.`);
 }
@@ -93,7 +107,7 @@ async function chooseTopic(interaction) {
     row(
       new TextInputBuilder()
         .setCustomId('ref')
-        .setLabel('Order ID, card name or username (optional)')
+        .setLabel(TOPICS[topic].refLabel ? `${TOPICS[topic].refLabel} (optional)` : 'Order ID, card name or username (optional)')
         .setStyle(TextInputStyle.Short)
         .setRequired(false)
         .setMaxLength(100)
@@ -101,7 +115,7 @@ async function chooseTopic(interaction) {
     row(
       new TextInputBuilder()
         .setCustomId('details')
-        .setLabel("What's going on?")
+        .setLabel(TOPICS[topic].detailsLabel || "What's going on?")
         .setPlaceholder('Describe the issue. You can add screenshots in the ticket.')
         .setStyle(TextInputStyle.Paragraph)
         .setRequired(true)
@@ -149,7 +163,7 @@ async function submitForm(interaction) {
     .setDescription(details)
     .setFooter({ text: `Opened by ${user.tag}` })
     .setTimestamp();
-  if (ref) summary.addFields({ name: 'Order ID / reference', value: ref });
+  if (ref) summary.addFields({ name: topic.refLabel || 'Order ID / reference', value: ref });
 
   const staffMentions = staffRoles(guild).map((r) => `${r}`).join(' ');
   const welcome = await channel.send({

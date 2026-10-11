@@ -7,7 +7,7 @@ A Discord bot for the Card Outpost server. It posts:
 - **Memes:** at most 1 per news slot, to #memes.
 
 - **MEE6 replacements** (switched on in `features.json`):
-  - **Tickets:** a topic menu in #support (Order / Shipping, Withdrawals & Payments, Account & Verification, Other) opens a short form (reference + details), then creates a private `<number>-<topic>-<username>` channel with Claim / Close / Reopen / Delete. Staff roles are pinged when a ticket opens. Deleting posts a transcript to #moderator-only. Settings: `TICKET_PANEL_CHANNEL` (support), `TICKET_CATEGORY` (Help), `TICKET_STAFF_ROLES` (Support,Moderators), `TICKET_LOG_CHANNEL` (moderator-only).
+  - **Tickets:** a topic menu in #support (Order / Shipping, Withdrawals & Payments, Account & Verification, Partnership / B2B, Other) opens a short form (reference + details), then creates a private `<number>-<topic>-<username>` channel with Claim / Close / Reopen / Delete. Staff roles are pinged when a ticket opens. Deleting posts a transcript to #moderator-only. Settings: `TICKET_PANEL_CHANNEL` (support), `TICKET_CATEGORY` (Help), `TICKET_STAFF_ROLES` (Support,Moderators), `TICKET_LOG_CHANNEL` (moderator-only).
   - **Levels:** 15–25 XP per message (once a minute), MEE6's level curve, level-up messages, `/rank` and `/leaderboard`. Existing MEE6 levels are imported automatically the first time it's switched on.
   - **Member counter:** keeps the "Total Members: 1.47K" channel name up to date.
 
