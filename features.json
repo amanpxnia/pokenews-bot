@@ -1,5 +1,5 @@
 {
-  "tickets": false,
+  "tickets": true,
   "levels": false,
   "memberCounter": false
 }

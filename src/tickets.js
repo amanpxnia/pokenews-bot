@@ -1,8 +1,10 @@
-// Support tickets, replacing MEE6's: an "Open ticket" button in #support creates a private
-// "<number>-<username>" channel for the member and staff, with Claim / Close / Reopen / Delete buttons.
-// Deleting a ticket posts a transcript to the staff log channel first.
-const fs = require('fs');
-const path = require('path');
+// Support tickets, replacing MEE6's. The panel in #support has a topic menu; picking a topic opens a
+// short form (order ID + what's wrong), then the bot creates a private "<number>-<topic>-<username>"
+// channel for the member and staff with Claim / Close / Reopen / Delete buttons. Deleting a ticket
+// posts a transcript to the staff log channel first.
+//
+// Nothing is kept on disk: a ticket's owner is read from its channel topic, so redeploys can't
+// lose track of open tickets.
 const {
   ActionRowBuilder,
   AttachmentBuilder,
@@ -11,32 +13,31 @@ const {
   ChannelType,
   EmbedBuilder,
   MessageFlags,
+  ModalBuilder,
   PermissionFlagsBits: P,
+  StringSelectMenuBuilder,
+  TextInputBuilder,
+  TextInputStyle,
 } = require('discord.js');
 
-const FILE = path.join(__dirname, '..', 'data', 'tickets.json');
 const SUPPORT_CHANNEL = process.env.TICKET_PANEL_CHANNEL || 'support';
 const CATEGORY = process.env.TICKET_CATEGORY || 'Help';
 const STAFF_ROLES = (process.env.TICKET_STAFF_ROLES || 'Support,Moderators').split(',').map((r) => r.trim());
 const LOG_CHANNEL = process.env.TICKET_LOG_CHANNEL || 'moderator-only';
 
-const MEMBER_ACCESS = [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles, P.EmbedLinks];
+const TOPICS = {
+  order: { label: 'Order / Shipping', emoji: '📦', description: 'Shipping requests, tracking, damaged or missing cards' },
+  payments: { label: 'Withdrawals & Payments', emoji: '💸', description: 'Deposits, withdrawals, buyback, refunds' },
+  account: { label: 'Account & Verification', emoji: '🔐', description: 'Login, ID verification, username, profile' },
+  other: { label: 'Other', emoji: '💬', description: 'Anything else' },
+};
 
-const load = () => {
-  try {
-    return JSON.parse(fs.readFileSync(FILE, 'utf8'));
-  } catch {
-    return { next: null, open: {} }; // open: { channelId: { owner, number } }
-  }
-};
-const save = (st) => {
-  fs.mkdirSync(path.dirname(FILE), { recursive: true });
-  fs.writeFileSync(FILE, JSON.stringify(st, null, 2));
-};
+const MEMBER_ACCESS = [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles, P.EmbedLinks];
 
 const button = (id, label, style, emoji) =>
   new ButtonBuilder().setCustomId(`ticket:${id}`).setLabel(label).setStyle(style).setEmoji(emoji);
-const row = (...buttons) => new ActionRowBuilder().addComponents(...buttons);
+const row = (...components) => new ActionRowBuilder().addComponents(...components);
+const ephemeral = (content) => ({ content, flags: MessageFlags.Ephemeral });
 
 const staffRoles = (guild) => STAFF_ROLES.map((n) => guild.roles.cache.find((r) => r.name === n)).filter(Boolean);
 const isStaff = (member) =>
@@ -44,64 +45,116 @@ const isStaff = (member) =>
   member.permissions.has(P.ManageChannels) ||
   member.roles.cache.some((r) => STAFF_ROLES.includes(r.name));
 
-/** Post the "Open ticket" panel in #support, unless the bot already has one there. */
+// A ticket channel's topic looks like "Ticket #96 · Order / Shipping · Opened by <@123>"
+const ownerOf = (channel) => (channel.topic?.match(/Opened by <@!?(\d+)>/) || [])[1] || null;
+const openTicketOf = (guild, userId) =>
+  guild.channels.cache.find((c) => c.type === ChannelType.GuildText && ownerOf(c) === userId);
+
+const panelMessage = () => ({
+  embeds: [
+    new EmbedBuilder()
+      .setColor('#D6F03E')
+      .setTitle('🛟 Card Outpost Support')
+      .setDescription(
+        'Need help? Pick a topic below, fill in a few details, and we\'ll open a private channel for you and our support team.\n\n' +
+          Object.values(TOPICS).map((t) => `${t.emoji} **${t.label}**: ${t.description}`).join('\n')
+      ),
+  ],
+  components: [
+    row(
+      new StringSelectMenuBuilder()
+        .setCustomId('ticket:topic')
+        .setPlaceholder('📩 Open a ticket: choose a topic')
+        .addOptions(Object.entries(TOPICS).map(([value, t]) => ({ value, label: t.label, emoji: t.emoji, description: t.description })))
+    ),
+  ],
+});
+
+/** Post the ticket panel in #support, unless the bot already has one there. */
 async function ensurePanel(guild, log) {
   const channel = guild.channels.cache.find((c) => c.name === SUPPORT_CHANNEL && c.isTextBased());
   if (!channel) return log(`  ! tickets: #${SUPPORT_CHANNEL} not found`);
   const recent = await channel.messages.fetch({ limit: 25 });
   const existing = recent.find(
-    (m) => m.author.id === guild.client.user.id && m.components?.[0]?.components?.[0]?.customId === 'ticket:open'
+    (m) => m.author.id === guild.client.user.id && m.components?.[0]?.components?.[0]?.customId === 'ticket:topic'
   );
   if (existing) return;
-  await channel.send({
-    embeds: [
-      new EmbedBuilder()
-        .setColor('#D6F03E')
-        .setTitle('🛟 Card Outpost Support')
-        .setDescription(
-          "Need help with an order, shipping, a withdrawal or your account?\n\nClick **Open ticket** below and we'll create a private channel for you and our support team."
-        ),
-    ],
-    components: [row(button('open', 'Open ticket', ButtonStyle.Primary, '📩'))],
-  });
-  log(`Tickets: posted the "Open ticket" panel in #${channel.name}.`);
+  await channel.send(panelMessage());
+  log(`Tickets: posted the support panel in #${channel.name}.`);
 }
 
-/** Next ticket number, continuing from MEE6's numbering ("95-username" → 96). */
-function nextNumber(guild, st) {
-  const fromChannels = Math.max(0, ...guild.channels.cache.map((c) => Number((c.name.match(/^(\d+)-/) || [])[1]) || 0));
-  const n = Math.max(st.next || 0, fromChannels + 1);
-  st.next = n + 1;
-  return n;
+/** Topic picked → show the short form (after checking they don't already have a ticket open). */
+async function chooseTopic(interaction) {
+  const topic = interaction.values[0];
+  const open = openTicketOf(interaction.guild, interaction.user.id);
+  if (open) return interaction.reply(ephemeral(`You already have an open ticket: ${open}`));
+  const modal = new ModalBuilder().setCustomId(`ticket:form:${topic}`).setTitle(`${TOPICS[topic].emoji} ${TOPICS[topic].label}`);
+  modal.addComponents(
+    row(
+      new TextInputBuilder()
+        .setCustomId('ref')
+        .setLabel('Order ID, card name or username (optional)')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(false)
+        .setMaxLength(100)
+    ),
+    row(
+      new TextInputBuilder()
+        .setCustomId('details')
+        .setLabel("What's going on?")
+        .setPlaceholder('Describe the issue. You can add screenshots in the ticket.')
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(true)
+        .setMinLength(10)
+        .setMaxLength(1500)
+    )
+  );
+  await interaction.showModal(modal);
 }
 
-async function open(interaction) {
+/** Next ticket number, continuing from the highest "<number>-…" channel (MEE6's included). */
+const nextNumber = (guild) =>
+  Math.max(0, ...guild.channels.cache.map((c) => Number((c.name.match(/^(\d+)-/) || [])[1]) || 0)) + 1;
+
+/** Form submitted → create the ticket channel. */
+async function submitForm(interaction) {
   const { guild, user } = interaction;
-  const st = load();
-  const existing = Object.entries(st.open).find(([id, t]) => t.owner === user.id && guild.channels.cache.has(id));
-  if (existing) {
-    return interaction.reply({ content: `You already have an open ticket: <#${existing[0]}>`, flags: MessageFlags.Ephemeral });
-  }
+  const topicKey = interaction.customId.split(':')[2];
+  const topic = TOPICS[topicKey] || TOPICS.other;
+  const open = openTicketOf(guild, user.id);
+  if (open) return interaction.reply(ephemeral(`You already have an open ticket: ${open}`));
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const number = nextNumber(guild, st);
+
+  const number = nextNumber(guild);
   const category = guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === CATEGORY);
   const channel = await guild.channels.create({
-    name: `${number}-${user.username}`.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 90),
+    name: `${number}-${topicKey}-${user.username}`.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 90),
     type: ChannelType.GuildText,
     parent: category?.id,
-    topic: `Ticket #${number} - Created by: ${user}`,
+    topic: `Ticket #${number} · ${topic.label} · Opened by ${user}`,
     permissionOverwrites: [
       { id: guild.roles.everyone.id, deny: [P.ViewChannel] },
       { id: user.id, allow: MEMBER_ACCESS },
       { id: guild.client.user.id, allow: [...MEMBER_ACCESS, P.ManageChannels] },
       ...staffRoles(guild).map((r) => ({ id: r.id, allow: MEMBER_ACCESS })),
     ],
-    reason: `Ticket #${number} opened by ${user.tag}`,
+    reason: `Ticket #${number} (${topic.label}) opened by ${user.tag}`,
   });
-  st.open[channel.id] = { owner: user.id, number };
-  save(st);
+
+  const ref = interaction.fields.getTextInputValue('ref').trim();
+  const details = interaction.fields.getTextInputValue('details').trim();
+  const summary = new EmbedBuilder()
+    .setColor('#D6F03E')
+    .setTitle(`${topic.emoji} Ticket #${number} · ${topic.label}`)
+    .setDescription(details)
+    .setFooter({ text: `Opened by ${user.tag}` })
+    .setTimestamp();
+  if (ref) summary.addFields({ name: 'Order ID / reference', value: ref });
+
+  const staffMentions = staffRoles(guild).map((r) => `${r}`).join(' ');
   const welcome = await channel.send({
-    content: `${user} Your ticket has been created.\n\nPlease describe your issue and add any details that could help (order ID, card name, screenshots). Our support team will be with you shortly.`,
+    content: `${user} thanks, your ticket is open. Our support team will reply here soon; feel free to add screenshots.${staffMentions ? `\n${staffMentions}` : ''}`,
+    embeds: [summary],
     components: [
       row(
         button('claim', 'Claim', ButtonStyle.Success, '🙋'),
@@ -109,72 +162,75 @@ async function open(interaction) {
         button('delete', 'Delete', ButtonStyle.Danger, '🗑️')
       ),
     ],
-    allowedMentions: { users: [user.id] },
+    allowedMentions: { users: [user.id], roles: staffRoles(guild).map((r) => r.id) },
   });
   await welcome.pin().catch(() => {});
   await interaction.editReply(`Your ticket is open: ${channel}`);
 }
 
 async function claim(interaction) {
-  if (!isStaff(interaction.member)) return interaction.reply({ content: 'Only staff can claim tickets.', flags: MessageFlags.Ephemeral });
-  await interaction.reply({ content: `${interaction.user} claimed the ticket.`, allowedMentions: { parse: [] } });
+  if (!isStaff(interaction.member)) return interaction.reply(ephemeral('Only staff can claim tickets.'));
+  await interaction.reply({ content: `🙋 ${interaction.user} claimed the ticket and will help you.`, allowedMentions: { parse: [] } });
 }
 
-async function setOwnerCanSend(interaction, canSend) {
-  const t = load().open[interaction.channelId];
-  if (t) await interaction.channel.permissionOverwrites.edit(t.owner, { SendMessages: canSend });
+async function setOwnerCanSend(channel, canSend) {
+  const owner = ownerOf(channel);
+  if (owner) await channel.permissionOverwrites.edit(owner, { SendMessages: canSend });
 }
 
 async function close(interaction) {
-  await setOwnerCanSend(interaction, false);
+  const owner = ownerOf(interaction.channel);
+  if (!isStaff(interaction.member) && interaction.user.id !== owner) return interaction.reply(ephemeral('Only staff or the ticket owner can close it.'));
+  await setOwnerCanSend(interaction.channel, false);
   await interaction.reply({
-    content: `${interaction.user} closed the ticket.`,
+    content: `🔒 ${interaction.user} closed the ticket.`,
     components: [row(button('reopen', 'Reopen', ButtonStyle.Success, '🔓'), button('delete', 'Delete', ButtonStyle.Danger, '🗑️'))],
     allowedMentions: { parse: [] },
   });
 }
 
 async function reopen(interaction) {
-  await setOwnerCanSend(interaction, true);
-  await interaction.reply({ content: `${interaction.user} reopened the ticket.`, allowedMentions: { parse: [] } });
+  if (!isStaff(interaction.member)) return interaction.reply(ephemeral('Only staff can reopen tickets.'));
+  await setOwnerCanSend(interaction.channel, true);
+  await interaction.reply({ content: `🔓 ${interaction.user} reopened the ticket.`, allowedMentions: { parse: [] } });
 }
 
 async function remove(interaction, log) {
-  if (!isStaff(interaction.member)) return interaction.reply({ content: 'Only staff can delete tickets.', flags: MessageFlags.Ephemeral });
-  await interaction.reply('🗑️ Deleting this ticket in 5 seconds…');
+  if (!isStaff(interaction.member)) return interaction.reply(ephemeral('Only staff can delete tickets.'));
+  await interaction.reply('🗑️ Saving a transcript and deleting this ticket in 5 seconds…');
   const channel = interaction.channel;
-  // transcript for the staff log channel
   try {
     const msgs = [...(await channel.messages.fetch({ limit: 100 })).values()].reverse();
-    const text = msgs.map((m) => `[${m.createdAt.toISOString().slice(0, 16).replace('T', ' ')}] ${m.author.tag}: ${m.content}${m.attachments.size ? ' ' + [...m.attachments.values()].map((a) => a.url).join(' ') : ''}`).join('\n');
+    const line = (m) =>
+      `[${m.createdAt.toISOString().slice(0, 16).replace('T', ' ')}] ${m.author.tag}: ${m.content}` +
+      (m.embeds[0]?.description ? ` | ${m.embeds[0].title || ''}: ${m.embeds[0].description}` : '') +
+      (m.attachments.size ? ' ' + [...m.attachments.values()].map((a) => a.url).join(' ') : '');
     const logChannel = channel.guild.channels.cache.find((c) => c.name === LOG_CHANNEL && c.isTextBased());
     await logChannel?.send({
-      content: `📄 Transcript of **#${channel.name}** (deleted by ${interaction.user.tag})`,
-      files: [new AttachmentBuilder(Buffer.from(text || '(empty)'), { name: `${channel.name}.txt` })],
+      content: `📄 Transcript of **#${channel.name}** (${channel.topic || ''}), deleted by ${interaction.user.tag}`,
+      files: [new AttachmentBuilder(Buffer.from(msgs.map(line).join('\n') || '(empty)'), { name: `${channel.name}.txt` })],
       allowedMentions: { parse: [] },
     });
   } catch (err) {
     log(`  ! ticket transcript failed: ${err.message}`);
   }
-  const st = load();
-  delete st.open[channel.id];
-  save(st);
   setTimeout(() => channel.delete(`Ticket deleted by ${interaction.user.tag}`).catch(() => {}), 5000);
 }
 
-/** Handle a ticket button click. Returns true if it was ours. */
+/** Handle a ticket menu pick, form submit or button click. Returns true if it was ours. */
 async function handle(interaction, log) {
-  if (!interaction.isButton() || !interaction.customId.startsWith('ticket:')) return false;
-  const action = interaction.customId.slice('ticket:'.length);
-  const handlers = { open, claim, close, reopen, delete: (i) => remove(i, log) };
+  if (!interaction.customId?.startsWith('ticket:')) return false;
+  const action = interaction.customId.split(':')[1];
   try {
-    await handlers[action]?.(interaction);
+    if (action === 'topic' && interaction.isStringSelectMenu()) await chooseTopic(interaction);
+    else if (action === 'form' && interaction.isModalSubmit()) await submitForm(interaction);
+    else if (interaction.isButton()) await { claim, close, reopen, delete: (i) => remove(i, log) }[action]?.(interaction);
   } catch (err) {
     log(`  ! ticket ${action} failed: ${err.message}`);
-    const reply = { content: 'Something went wrong, please try again or ping a moderator.', flags: MessageFlags.Ephemeral };
+    const reply = ephemeral('Something went wrong, please try again or ping a moderator.');
     await (interaction.deferred || interaction.replied ? interaction.followUp(reply) : interaction.reply(reply)).catch(() => {});
   }
   return true;
 }
 
-module.exports = { ensurePanel, handle };
+module.exports = { ensurePanel, handle, ownerOf, nextNumber, TOPICS };
