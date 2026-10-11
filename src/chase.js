@@ -171,6 +171,9 @@ function buildMessage({ card, year }, graphic) {
       '# 🏆  GRAIL OF THE DAY',
       `# ${[year, prettyName(card.name), `PSA ${card.gradeDisplay}`].filter(Boolean).join(' ')}`,
       `# ${money(card.price)}`,
+      // the card's own page on cardoutpost.com (year, population, price history, which pack it's in);
+      // angle brackets keep Discord from adding a link preview under the graphic
+      `🔗 <https://www.cardoutpost.com/cards/${card.id}>`,
     ].join('\n\n'),
     files: [
       graphic
