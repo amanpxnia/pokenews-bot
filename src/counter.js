@@ -1,5 +1,5 @@
 // Member counter, replacing MEE6's: keeps a channel named "Total Members: 1.47K" up to date.
-const NAME = /^Total Members:/i;
+const NAME = /^(『[^』]*』\s*)?Total Members:/i;
 const EVERY_MS = 15 * 60e3; // Discord only allows 2 channel renames per 10 minutes
 
 const format = (n) => (n >= 1000 ? `${(n / 1000).toFixed(2).replace(/\.?0+$/, '')}K` : String(n));

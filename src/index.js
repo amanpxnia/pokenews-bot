@@ -4,6 +4,7 @@ const { loadFeeds, fetchFeed, truncate } = require('./feeds');
 const state = require('./state');
 const chase = require('./chase');
 const { isRelevant } = require('./relevance');
+const { sameName } = require('./names');
 const { parseHours, currentSlot } = require('./schedule');
 const tickets = require('./tickets');
 const levels = require('./levels');
@@ -80,7 +81,7 @@ async function channelFor(feed, defaultChannel) {
   const guild = defaultChannel.guild;
   const ch =
     guild.channels.cache.get(feed.channel) ||
-    guild.channels.cache.find((c) => c.name === feed.channel.replace(/^#/, '') && c.isTextBased());
+    guild.channels.cache.find((c) => sameName(c.name, feed.channel) && c.isTextBased());
   if (!ch) throw new Error(`channel "${feed.channel}" not found in ${guild.name}`);
   const perms = ch.permissionsFor(guild.members.me);
   if (perms && !perms.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks])) {
