@@ -110,6 +110,12 @@ function categorize(label) {
   return 'other';
 }
 
+/** For sports cards: basketball if the label says so, otherwise baseball (most vintage Topps is baseball). */
+const sportOf = (label) => (/BASKETBALL|\bNBA\b|\bWNBA\b|HOOPS|PRIZM/i.test(label) ? 'basketball' : 'baseball');
+
+// Game tag shown on a reveal, e.g. "⚡ Pokémon"
+const GAME_TAGS = { pokemon: '⚡ Pokémon', onepiece: '🏴‍☠️ One Piece', baseball: '⚾ Baseball', basketball: '🏀 Basketball' };
+
 // first "1999 POKEMON…" / "2018 TOPPS…" style year+word on the label (OCR may add stray characters before it)
 const yearOf = (label) => (label.match(/\b((?:19|20)\d{2})\s+[A-Z]/) || [])[1] || null;
 
@@ -140,9 +146,11 @@ async function findCard(pool, wanted, recent, dir, cache) {
       if (!known) {
         checked++;
         const label = await readLabel(photo);
-        cache[card.id] = { category: categorize(label), year: yearOf(label) };
+        const category = categorize(label);
+        cache[card.id] = { category, year: yearOf(label), ...(category === 'sports' && { sport: sportOf(label) }) };
       }
-      if (cache[card.id].category === wanted) return { card, year: cache[card.id].year, photo };
+      const info = cache[card.id];
+      if (info.category === wanted) return { card, year: info.year, game: wanted === 'sports' ? info.sport || 'baseball' : wanted, photo };
     } catch (err) {
       console.error(`  ! skipped ${card.name}: ${err.message}`);
     }
@@ -163,18 +171,25 @@ async function renderGraphic(photo, dir, { title, year, grade, price }) {
   }
 }
 
-// Same layout as the hand-made #pulls-of-the-day posts: big heading lines and the graphic attached (no @everyone ping).
-function buildMessage({ card, year }, graphic) {
+// Grail reveal text ("clean stat block"):
+//   ## 🏆 GRAIL OF THE DAY
+//   > **2003 Charizard-Holo**
+//   > PSA 9 · ⚡ Pokémon
+//   > Market value **$4,896**
+//   🔗 View this card   (links to the card's page; angle brackets stop Discord adding a link preview)
+// The "GRAIL PULLED" graphic is attached below it. No @everyone ping.
+function buildMessage({ card, year, game }, graphic) {
   const ext = (card.imageUrl.match(/\.(jpe?g|png|webp)(?:\?|$)/i) || [, 'jpg'])[1];
+  const title = [year, prettyName(card.name)].filter(Boolean).join(' ');
   return {
     content: [
-      '# 🏆  GRAIL OF THE DAY',
-      `# ${[year, prettyName(card.name), `PSA ${card.gradeDisplay}`].filter(Boolean).join(' ')}`,
-      `# ${money(card.price)}`,
-      // the card's own page on cardoutpost.com (year, population, price history, which pack it's in),
-      // as a text link; angle brackets keep Discord from adding a link preview under the graphic
+      '## 🏆 GRAIL OF THE DAY',
+      `> **${title}**`,
+      `> PSA ${card.gradeDisplay}${GAME_TAGS[game] ? ` · ${GAME_TAGS[game]}` : ''}`,
+      `> Market value **${money(card.price)}**`,
+      '',
       `🔗 [View this card](<https://www.cardoutpost.com/cards/${card.id}>)`,
-    ].join('\n\n'),
+    ].join('\n'),
     files: [
       graphic
         ? { attachment: graphic, name: 'grail-pulled.jpg' }
