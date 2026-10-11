@@ -1,6 +1,6 @@
 // Grail posts: a few times a day, post a high-value graded card from the Card Outpost showroom
 // with a "GRAIL PULLED" graphic. The mix of games follows MIX below (50% Pokémon, 20% One Piece,
-// 30% baseball/basketball), and every card is worth at least MIN_PRICE.
+// 30% baseball/basketball), and every card is worth at least MIN_PRICE and under MAX_PRICE.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -18,6 +18,8 @@ const LABEL_PY = path.join(__dirname, '..', 'scripts', 'read_label.py'); // Linu
 const run = promisify(execFile);
 
 const MIN_PRICE = Number(process.env.GRAIL_MIN_PRICE) || 1500;
+// Under $10,000 by default, so every card posted also appears in the showroom's "God-Tier Pulls" list
+const MAX_PRICE = Number(process.env.GRAIL_MAX_PRICE) || 10000;
 const RECENT_LIMIT = 100; // don't repeat a card within this many posts
 const MAX_TRIES = 30; // unknown cards to check (download + read label) per category before falling back
 
@@ -26,8 +28,8 @@ const MIX = ['pokemon', 'sports', 'pokemon', 'onepiece', 'pokemon', 'sports', 'p
 const LABELS = { pokemon: 'Pokémon', onepiece: 'One Piece', sports: 'Baseball/Basketball' };
 
 // The showroom returns at most 120 cards per request, the priciest under `belowPrice`,
-// so step down through these to collect everything from the top end to MIN_PRICE.
-const PRICE_STEPS = [1000000, 20000, 10000, 7500, 5000, 3500, 2500];
+// so step down from MAX_PRICE through these to collect everything down to MIN_PRICE.
+const PRICE_STEPS = [7500, 5000, 3500, 2500, 2000, 1750];
 
 function readJson(file, fallback) {
   try {
@@ -60,13 +62,13 @@ async function getJson(url) {
   return res.json();
 }
 
-/** Every graded showroom card worth at least MIN_PRICE, deduplicated. */
+/** Every graded showroom card worth at least MIN_PRICE and under MAX_PRICE, deduplicated. */
 async function fetchPool() {
   const byId = new Map();
-  for (const below of PRICE_STEPS) {
+  for (const below of [MAX_PRICE, ...PRICE_STEPS.filter((p) => p < MAX_PRICE)]) {
     const { cards = [] } = await getJson(`${FEED}?belowPrice=${below}&limit=120`);
     for (const c of cards) {
-      if (c.price >= MIN_PRICE && c.gradeDisplay && c.imageUrl && c.name) byId.set(c.id, c);
+      if (c.price >= MIN_PRICE && c.price < MAX_PRICE && c.gradeDisplay && c.imageUrl && c.name) byId.set(c.id, c);
     }
   }
   return [...byId.values()];
@@ -235,4 +237,4 @@ async function postChase(send, hours = []) {
   return grail;
 }
 
-module.exports = { postChase, prepareGrail, isDue, categorize, prettyName, MIX, MIN_PRICE };
+module.exports = { postChase, prepareGrail, fetchPool, isDue, categorize, prettyName, MIX, MIN_PRICE, MAX_PRICE };
