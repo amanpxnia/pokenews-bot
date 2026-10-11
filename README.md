@@ -55,6 +55,7 @@ npm start
 | `CHASE_CHANNEL` | pulls-of-the-day | Channel for grail reveals; empty = off |
 | `GRAIL_TIMES` | 0,3,6,9,12,15,18,21 | Local hours (0–23) to post 1 grail reveal |
 | `GRAIL_MIN_PRICE` | 1500 | Lowest card value (USD) for grail reveals |
+| `SHOWROOM_BOT_KEY` | (none) | Secret sent as the `x-cardoutpost-bot` header so cardoutpost.com's firewall lets the bot read the showroom. Needs a matching bypass rule in the site's Vercel firewall. |
 
 The news filter lives in `src/relevance.js`. A feed in `feeds.json` can say what it's always about with `"impliedTopic": "pokemon"`, and `"impliedCards": true` if every post is about cards (e.g. r/PokemonTCG).
 

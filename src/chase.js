@@ -45,11 +45,17 @@ function writeJson(file, data) {
 
 const loadState = () => ({ lastSlot: null, mixIndex: 0, recent: [], ...readJson(STATE_FILE, {}) });
 
+// cardoutpost.com's firewall blocks automated requests. SHOWROOM_BOT_KEY is a shared secret sent in the
+// x-cardoutpost-bot header; a firewall rule on the site lets requests carrying it through.
+const BOT_KEY = process.env.SHOWROOM_BOT_KEY;
+
 async function getJson(url) {
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; CardOutpostBot/1.0)' },
-    signal: AbortSignal.timeout(20000),
-  });
+  const headers = { 'User-Agent': 'Mozilla/5.0 (compatible; CardOutpostBot/1.0)' };
+  if (BOT_KEY) headers['x-cardoutpost-bot'] = BOT_KEY;
+  const res = await fetch(url, { headers, signal: AbortSignal.timeout(20000) });
+  if (res.status === 403) {
+    throw new Error(`cardoutpost.com blocked the request (403)${BOT_KEY ? '; check the firewall rule for x-cardoutpost-bot' : '; set SHOWROOM_BOT_KEY and allow it in the site firewall'}`);
+  }
   if (!res.ok) throw new Error(`Status code ${res.status}`);
   return res.json();
 }
