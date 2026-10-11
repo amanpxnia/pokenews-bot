@@ -113,8 +113,8 @@ function categorize(label) {
 /** For sports cards: basketball if the label says so, otherwise baseball (most vintage Topps is baseball). */
 const sportOf = (label) => (/BASKETBALL|\bNBA\b|\bWNBA\b|HOOPS|PRIZM/i.test(label) ? 'basketball' : 'baseball');
 
-// Game tag shown on a reveal, e.g. "⚡ Pokémon"
-const GAME_TAGS = { pokemon: '⚡ Pokémon', onepiece: '🏴‍☠️ One Piece', baseball: '⚾ Baseball', basketball: '🏀 Basketball' };
+// Game tag shown on a reveal. Pokémon uses the server's animated :pokemon_headbang: emoji.
+const GAME_TAGS = { pokemon: '<a:pokemon_headbang:1501141806916702270> Pokémon', onepiece: '🏴‍☠️ One Piece', baseball: '⚾ Baseball', basketball: '🏀 Basketball' };
 
 // first "1999 POKEMON…" / "2018 TOPPS…" style year+word on the label (OCR may add stray characters before it)
 const yearOf = (label) => (label.match(/\b((?:19|20)\d{2})\s+[A-Z]/) || [])[1] || null;
@@ -174,7 +174,7 @@ async function renderGraphic(photo, dir, { title, year, grade, price }) {
 // Grail reveal text ("clean stat block"):
 //   ## 🏆 GRAIL OF THE DAY
 //   > **2003 Charizard-Holo**
-//   > PSA 9 · ⚡ Pokémon
+//   > PSA 9 · :pokemon_headbang: Pokémon
 //   > Market value **$4,896**
 //   🔗 View this card   (links to the card's page; angle brackets stop Discord adding a link preview)
 // The "GRAIL PULLED" graphic is attached below it. No @everyone ping.
