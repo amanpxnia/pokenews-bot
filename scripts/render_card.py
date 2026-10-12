@@ -11,6 +11,7 @@ JSON fields:
   grade      e.g. "PSA 10"
   price      e.g. "$8,904"
   caption    small text under the price, e.g. "MARKET VALUE"
+  priceColor optional: "up" (green) or "down" (red) for price moves; default is the yellow-green price colour
   imagePath  local file with the slab photo (light background is cut out automatically)
 """
 import colorsys
@@ -30,6 +31,7 @@ COL_X, COL_W = 70, 560          # left text column
 CENTER = COL_X + COL_W // 2
 WHITE = (255, 255, 255)
 PRICE = (214, 240, 62)          # the yellow-green price colour
+PRICE_COLORS = {"up": (74, 222, 128), "down": (248, 113, 113)}  # top movers: rising / falling
 RULE = (205, 205, 205)
 DEFAULT_ACCENTS = ((110, 50, 210), (30, 45, 140))  # purple/blue, used when there's no photo
 
@@ -185,7 +187,7 @@ def render(data, out_path):
         y = text_line(draw, y, data["grade"].upper(), 50 if sub else 56) + 12
         rule(draw, y, COL_W - 200)
         y += 10
-    y = text_line(draw, y, data["price"], 88 if sub else 96, color=PRICE) + 10
+    y = text_line(draw, y, data["price"], 88 if sub else 96, color=PRICE_COLORS.get(data.get("priceColor"), PRICE)) + 10
     if data.get("caption"):
         text_line(draw, y, data["caption"].upper(), 26, spacing=4)
 

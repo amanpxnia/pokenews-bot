@@ -1,6 +1,6 @@
 // Top Movers: once a day, rank showroom cards by how much their sale prices moved over the last
-// 30 days (median of sales in the last 30 days vs. the 60 days before), and post the top 5 with a
-// graphic. Format inspired by tcgberg.com/top-movers; the data is Card Outpost's own sales history,
+// 30 days (median of sales in the last 30 days vs. the 60 days before), and post the top 5 risers and
+// the biggest drop, one post and one graphic per card. Format inspired by tcgberg.com/top-movers; the data is Card Outpost's own sales history,
 // read from each card's page on cardoutpost.com.
 const fs = require('fs');
 const os = require('os');
@@ -8,12 +8,12 @@ const path = require('path');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const { currentSlot } = require('./schedule');
-const { prettyName } = require('./chase');
+const { prettyName, GAME_TAGS } = require('./chase');
 
 const run = promisify(execFile);
 const FEED = 'https://www.cardoutpost.com/api/cards/showroom-feed';
 const STATE_FILE = path.join(__dirname, '..', 'data', 'movers.json');
-const RENDER = path.join(__dirname, '..', 'scripts', 'render_movers.py');
+const RENDER = path.join(__dirname, '..', 'scripts', 'render_card.py'); // same graphic style as grail reveals
 const UA = 'Mozilla/5.0 (compatible; CardOutpostBot/1.0)';
 const DAY = 86400e3;
 
@@ -23,7 +23,7 @@ const MIN_SALES = 2; // need at least this many sales in each window, so one odd
 const PAGE_GAP_MS = 1200; // be gentle: one card page every 1.2 s
 const TOP = 5;
 
-const GAME_TAGS = { pokemon: '<:pokemon:1501141856535314554>', onepiece: '🏴‍☠️', baseball: '⚾', basketball: '🏀' };
+const POST_GAP_MS = 4000; // pause between the posts so they don't land all at once
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const median = (a) => {
@@ -103,36 +103,55 @@ async function computeMovers(log = () => {}) {
 }
 
 const pct = (change) => `${change >= 0 ? '+' : '-'}${Math.round(Math.abs(change) * 100)}%`;
-const link = (r) => `<https://www.cardoutpost.com/cards/${r.card.id}>`;
-const title = (r) => [r.year, prettyName(r.card.name)].filter(Boolean).join(' ');
 
-/** The Discord message: ranked list with links, plus the graphic. */
-async function buildPost({ gainers, decliners }) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'movers-'));
+/**
+ * One post + graphic for a mover. `label` is e.g. "TOP MOVER #1" or "BIGGEST DROP".
+ *   ## 📈 TOP MOVER #1 · LAST 30 DAYS
+ *   > **2011 Lugia-Holo**
+ *   > PSA 7 · :pokemon_headbang: Pokémon
+ *   > ▲ **+468%** · $1,584 → $9,000
+ *   🔗 View this card
+ */
+async function buildPost(r, label) {
+  const up = r.change >= 0;
+  const name = prettyName(r.card.name);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mover-'));
   try {
-    const movers = [];
-    for (const [i, r] of gainers.entries()) {
-      const photo = path.join(dir, `${i}.jpg`);
-      fs.writeFileSync(photo, Buffer.from(await (await get(r.card.imageUrl)).arrayBuffer()));
-      movers.push({ name: prettyName(r.card.name), year: r.year, grade: r.card.gradeDisplay, change: pct(r.change), from: money(r.from), to: money(r.to), imagePath: photo });
-    }
-    const out = path.join(dir, 'movers.jpg');
-    await run('python3', [RENDER, JSON.stringify({ period: 'LAST 30 DAYS', movers }), out], { timeout: 120000 });
-    const lines = [
-      '## 📈 TOP MOVERS · LAST 30 DAYS',
-      ...gainers.map(
-        (r, i) => `> **${i + 1}. [${title(r)}](${link(r)})** · PSA ${r.card.gradeDisplay} ${GAME_TAGS[r.game] || ''}\n> ▲ **${pct(r.change)}** · ${money(r.from)} → ${money(r.to)}`
-      ),
-      ...(decliners.length
-        ? ['', `📉 **Biggest drop:** [${title(decliners[0])}](${link(decliners[0])}) · PSA ${decliners[0].card.gradeDisplay} · ▼ **${pct(decliners[0].change)}** (${money(decliners[0].from)} → ${money(decliners[0].to)})`]
-        : []),
+    const photo = path.join(dir, 'photo.jpg');
+    fs.writeFileSync(photo, Buffer.from(await (await get(r.card.imageUrl)).arrayBuffer()));
+    const out = path.join(dir, 'mover.jpg');
+    const graphic = {
+      headline: label,
+      name,
+      subline: r.year,
+      grade: `PSA ${r.card.gradeDisplay}`,
+      price: pct(r.change),
+      priceColor: up ? 'up' : 'down',
+      caption: `${money(r.from)} → ${money(r.to)} · 30 days`,
+      imagePath: photo,
+    };
+    await run('python3', [RENDER, JSON.stringify(graphic), out], { timeout: 120000 });
+    const content = [
+      `## ${up ? '📈' : '📉'} ${label} · LAST 30 DAYS`,
+      `> **${[r.year, name].filter(Boolean).join(' ')}**`,
+      `> PSA ${r.card.gradeDisplay}${GAME_TAGS[r.game] ? ` · ${GAME_TAGS[r.game]}` : ''}`,
+      `> ${up ? '▲' : '▼'} **${pct(r.change)}** · ${money(r.from)} → ${money(r.to)}`,
       '',
-      '-# Median Card Outpost sale price over the last 30 days vs. the 60 days before. Past prices, not a prediction or financial advice.',
-    ];
-    return { content: lines.join('\n'), files: [{ attachment: fs.readFileSync(out), name: 'top-movers.jpg' }], allowedMentions: { parse: [] } };
+      `🔗 [View this card](<https://www.cardoutpost.com/cards/${r.card.id}>)`,
+      '-# Median Card Outpost sale price, last 30 days vs. the 60 days before. Past prices, not financial advice.',
+    ].join('\n');
+    return { content, files: [{ attachment: fs.readFileSync(out), name: 'top-mover.jpg' }], allowedMentions: { parse: [] } };
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/** All of today's posts, in order: top movers #1–#5, then the biggest drop. */
+async function buildPosts({ gainers, decliners }) {
+  const posts = [];
+  for (const [i, r] of gainers.entries()) posts.push(await buildPost(r, `TOP MOVER #${i + 1}`));
+  if (decliners[0]) posts.push(await buildPost(decliners[0], 'BIGGEST DROP'));
+  return posts;
 }
 
 /** Post today's movers if the daily slot has started and they haven't gone out yet. */
@@ -144,8 +163,12 @@ async function tick(channel, hours, log) {
   saveState(st);
   const result = await computeMovers(log);
   if (result.gainers.length < 3) return log(`Top movers: only ${result.gainers.length} risers with enough sales; skipped today.`);
-  await channel.send(await buildPost(result));
-  log(`Top movers posted to #${channel.name} (${result.usable} of ${result.checked} cards had enough sales).`);
+  const posts = await buildPosts(result);
+  for (const [i, post] of posts.entries()) {
+    if (i > 0) await sleep(POST_GAP_MS);
+    await channel.send(post);
+  }
+  log(`Top movers: ${posts.length} posts in #${channel.name} (${result.usable} of ${result.checked} cards had enough sales).`);
 }
 
-module.exports = { computeMovers, buildPost, tick, cardDetails, gameOf };
+module.exports = { computeMovers, buildPost, buildPosts, tick, cardDetails, gameOf };

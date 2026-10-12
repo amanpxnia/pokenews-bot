@@ -255,4 +255,4 @@ async function postChase(send, hours = []) {
   return grail;
 }
 
-module.exports = { postChase, prepareGrail, fetchPool, isDue, categorize, prettyName, MIX, MIN_PRICE, MAX_PRICE };
+module.exports = { postChase, prepareGrail, fetchPool, isDue, categorize, prettyName, GAME_TAGS, MIX, MIN_PRICE, MAX_PRICE };
