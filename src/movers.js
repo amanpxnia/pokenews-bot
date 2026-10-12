@@ -149,8 +149,8 @@ async function computeMovers(log = () => {}) {
 const pct = (change) => `${change >= 0 ? '+' : '-'}${Math.round(Math.abs(change) * 100)}%`;
 
 /**
- * One post + graphic for a mover. `label` is e.g. "TOP MOVER #1" or "BIGGEST DROP"; r.window is d30 or d7.
- *   ## 📈 TOP MOVER #1 · LAST 30 DAYS
+ * One post + graphic for a mover. `label` is "TOP MOVERS" or "BIGGEST DROP"; r.window is d30 or d7.
+ *   ## 📈 TOP MOVERS · 30 DAYS
  *   > **2011 Lugia-Holo**
  *   > PSA 7 · :pokemon_headbang: Pokémon
  *   > ▲ **+468%** · $1,584 → $9,000
@@ -166,7 +166,7 @@ async function buildPost(r, label) {
     fs.writeFileSync(photo, Buffer.from(await (await get(r.card.imageUrl)).arrayBuffer()));
     const out = path.join(dir, 'mover.jpg');
     const graphic = {
-      headline: label.replace(/\s*#\d+$/, ''), // graphic says "TOP MOVER"; the post text keeps the rank
+      headline: label,
       name,
       subline: r.year,
       grade: `PSA ${r.card.gradeDisplay}`,
@@ -196,7 +196,7 @@ async function buildPosts({ windows }) {
   const posts = [];
   for (const key of ['d30', 'd7']) {
     const { gainers, decliners } = windows[key];
-    for (const [i, r] of gainers.entries()) posts.push(await buildPost(r, `TOP MOVER #${i + 1}`));
+    for (const r of gainers) posts.push(await buildPost(r, 'TOP MOVERS'));
     if (decliners[0]) posts.push(await buildPost(decliners[0], 'BIGGEST DROP'));
   }
   return posts;
