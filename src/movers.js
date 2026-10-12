@@ -1,6 +1,9 @@
-// Top Movers: once a day, rank showroom cards by how much their sale prices moved over the last
-// 30 days (median of sales in the last 30 days vs. the 60 days before), and post the top 5 risers and
-// the biggest drop, one post and one graphic per card. Format inspired by tcgberg.com/top-movers; the data is Card Outpost's own sales history,
+// Top Movers: once a day, rank showroom cards by how much their sale prices moved, over two windows:
+//   30 days: median sale in the 30 days up to the newest sale vs. the 60 days before
+//    7 days: median sale in the 7 days up to the newest sale vs. the 30 days before
+// and post the top risers and the biggest drop of each, one post and one graphic per card.
+// Windows end at the newest sale in Card Outpost's data (not today), because its sales history is
+// published with a delay of a week or more. Format inspired by tcgberg.com/top-movers; the data is Card Outpost's own sales history,
 // read from each card's page on cardoutpost.com.
 const fs = require('fs');
 const os = require('os');
@@ -21,7 +24,14 @@ const MIN_PRICE = Number(process.env.MOVERS_MIN_PRICE) || 1000;
 const MAX_PRICE = Number(process.env.MOVERS_MAX_PRICE) || 10000;
 const MIN_SALES = 2; // need at least this many sales in each window, so one odd sale can't fake a move
 const PAGE_GAP_MS = 1200; // be gentle: one card page every 1.2 s
-const TOP = 5;
+const TOP = Math.max(1, Number(process.env.MOVERS_TOP) || 1); // risers per window (plus the biggest drop)
+
+const WINDOWS = {
+  d30: { days: 30, baseline: 60, label: '30 DAYS', note: '30 days vs. the 60 days before' },
+  d7: { days: 7, baseline: 30, label: '7 DAYS', note: '7 days vs. the 30 days before' },
+};
+const SALES_CACHE = path.join(__dirname, '..', 'data', 'movers-sales.json');
+const CACHE_MAX_AGE_MS = 6 * 3600e3; // reuse card page data for up to 6 hours
 
 const POST_GAP_MS = 4000; // pause between the posts so they don't land all at once
 
@@ -78,34 +88,68 @@ function gameOf(set = '') {
   return 'baseball';
 }
 
-/** Rank every card by its 30-day move. Returns { gainers, decliners, checked }. */
-async function computeMovers(log = () => {}) {
-  const pool = await fetchPool();
-  const now = Date.now();
-  const rows = [];
+/** Sales/set/year for every pool card, from card pages (reusing a recent cache to spare the site). */
+async function collectDetails(pool, log) {
+  let cache = {};
+  try {
+    const saved = JSON.parse(fs.readFileSync(SALES_CACHE, 'utf8'));
+    if (Date.now() - saved.at < CACHE_MAX_AGE_MS) cache = saved.cards;
+  } catch {}
+  const details = {};
   for (const card of pool) {
+    if (cache[card.id]) {
+      details[card.id] = cache[card.id];
+      continue;
+    }
     try {
-      const { sales, set, year } = await cardDetails(card.id);
-      const recent = sales.filter((s) => s.time >= now - 30 * DAY).map((s) => s.price);
-      const before = sales.filter((s) => s.time >= now - 90 * DAY && s.time < now - 30 * DAY).map((s) => s.price);
-      if (recent.length >= MIN_SALES && before.length >= MIN_SALES) {
-        const from = median(before);
-        const to = median(recent);
-        rows.push({ card, set, year, game: gameOf(set), from, to, change: (to - from) / from, sales: recent.length + before.length });
-      }
+      details[card.id] = await cardDetails(card.id);
     } catch (err) {
       log(`  ! movers: skipped ${card.name}: ${err.message}`);
     }
     await sleep(PAGE_GAP_MS);
   }
-  rows.sort((a, b) => b.change - a.change);
-  return { gainers: rows.filter((r) => r.change > 0).slice(0, TOP), decliners: rows.filter((r) => r.change < 0).slice(-1), checked: pool.length, usable: rows.length };
+  fs.mkdirSync(path.dirname(SALES_CACHE), { recursive: true });
+  fs.writeFileSync(SALES_CACHE, JSON.stringify({ at: Date.now(), cards: { ...cache, ...details } }));
+  return details;
+}
+
+/** Rank every card by its move in each window. Returns { checked, through, windows: { d30: {...}, d7: {...} } }. */
+async function computeMovers(log = () => {}) {
+  const pool = await fetchPool();
+  const details = await collectDetails(pool, log);
+  // windows end at the newest sale in the data (it lags behind today)
+  const end = Math.max(0, ...Object.values(details).flatMap((d) => d.sales.map((s) => s.time)));
+  const rows = { d30: [], d7: [] };
+  for (const card of pool) {
+    const d = details[card.id];
+    if (!d) continue;
+    for (const [key, w] of Object.entries(WINDOWS)) {
+      const recent = d.sales.filter((s) => s.time > end - w.days * DAY && s.time <= end).map((s) => s.price);
+      const before = d.sales
+        .filter((s) => s.time > end - (w.days + w.baseline) * DAY && s.time <= end - w.days * DAY)
+        .map((s) => s.price);
+      if (recent.length >= MIN_SALES && before.length >= MIN_SALES) {
+        const from = median(before);
+        const to = median(recent);
+        rows[key].push({ card, set: d.set, year: d.year, game: gameOf(d.set), from, to, change: (to - from) / from, window: key, through: end });
+      }
+    }
+  }
+  // pick the 30-day movers first; the 7-day posts skip any card already featured, so no card is posted twice
+  const windows = {};
+  const featured = new Set();
+  for (const key of ['d30', 'd7']) {
+    const list = rows[key].filter((r) => !featured.has(r.card.id)).sort((a, b) => b.change - a.change);
+    windows[key] = { gainers: list.filter((r) => r.change > 0).slice(0, TOP), decliners: list.filter((r) => r.change < 0).slice(-1), usable: rows[key].length };
+    for (const r of [...windows[key].gainers, ...windows[key].decliners]) featured.add(r.card.id);
+  }
+  return { checked: pool.length, through: end, windows };
 }
 
 const pct = (change) => `${change >= 0 ? '+' : '-'}${Math.round(Math.abs(change) * 100)}%`;
 
 /**
- * One post + graphic for a mover. `label` is e.g. "TOP MOVER #1" or "BIGGEST DROP".
+ * One post + graphic for a mover. `label` is e.g. "TOP MOVER #1" or "BIGGEST DROP"; r.window is d30 or d7.
  *   ## 📈 TOP MOVER #1 · LAST 30 DAYS
  *   > **2011 Lugia-Holo**
  *   > PSA 7 · :pokemon_headbang: Pokémon
@@ -113,6 +157,7 @@ const pct = (change) => `${change >= 0 ? '+' : '-'}${Math.round(Math.abs(change)
  *   🔗 View this card
  */
 async function buildPost(r, label) {
+  const w = WINDOWS[r.window || 'd30'];
   const up = r.change >= 0;
   const name = prettyName(r.card.name);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mover-'));
@@ -127,18 +172,18 @@ async function buildPost(r, label) {
       grade: `PSA ${r.card.gradeDisplay}`,
       price: pct(r.change),
       priceColor: up ? 'up' : 'down',
-      caption: `${money(r.from)} → ${money(r.to)} · 30 days`,
+      caption: `${money(r.from)} → ${money(r.to)} · ${w.days} days`,
       imagePath: photo,
     };
     await run('python3', [RENDER, JSON.stringify(graphic), out], { timeout: 120000 });
     const content = [
-      `## ${up ? '📈' : '📉'} ${label} · LAST 30 DAYS`,
+      `## ${up ? '📈' : '📉'} ${label} · ${w.label}`,
       `> **${[r.year, name].filter(Boolean).join(' ')}**`,
       `> PSA ${r.card.gradeDisplay}${GAME_TAGS[r.game] ? ` · ${GAME_TAGS[r.game]}` : ''}`,
       `> ${up ? '▲' : '▼'} **${pct(r.change)}** · ${money(r.from)} → ${money(r.to)}`,
       '',
       `🔗 [View this card](<https://www.cardoutpost.com/cards/${r.card.id}>)`,
-      '-# Median Card Outpost sale price, last 30 days vs. the 60 days before. Past prices, not financial advice.',
+      `-# Median Card Outpost sale price over ${w.note}, using sales through ${new Date(r.through).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}. Past prices, not financial advice.`,
     ].join('\n');
     return { content, files: [{ attachment: fs.readFileSync(out), name: 'top-mover.jpg' }], allowedMentions: { parse: [] } };
   } finally {
@@ -146,11 +191,14 @@ async function buildPost(r, label) {
   }
 }
 
-/** All of today's posts, in order: top movers #1–#5, then the biggest drop. */
-async function buildPosts({ gainers, decliners }) {
+/** All of today's posts: for each window (30 days, then 7 days) the top risers, then the biggest drop. */
+async function buildPosts({ windows }) {
   const posts = [];
-  for (const [i, r] of gainers.entries()) posts.push(await buildPost(r, `TOP MOVER #${i + 1}`));
-  if (decliners[0]) posts.push(await buildPost(decliners[0], 'BIGGEST DROP'));
+  for (const key of ['d30', 'd7']) {
+    const { gainers, decliners } = windows[key];
+    for (const [i, r] of gainers.entries()) posts.push(await buildPost(r, `TOP MOVER #${i + 1}`));
+    if (decliners[0]) posts.push(await buildPost(decliners[0], 'BIGGEST DROP'));
+  }
   return posts;
 }
 
@@ -162,13 +210,13 @@ async function tick(channel, hours, log) {
   st.lastSlot = slot; // claim first: this takes several minutes and shouldn't start twice
   saveState(st);
   const result = await computeMovers(log);
-  if (result.gainers.length < 3) return log(`Top movers: only ${result.gainers.length} risers with enough sales; skipped today.`);
+  if (!result.windows.d30.gainers.length && !result.windows.d7.gainers.length) return log('Top movers: no cards with enough sales; skipped today.');
   const posts = await buildPosts(result);
   for (const [i, post] of posts.entries()) {
     if (i > 0) await sleep(POST_GAP_MS);
     await channel.send(post);
   }
-  log(`Top movers: ${posts.length} posts in #${channel.name} (${result.usable} of ${result.checked} cards had enough sales).`);
+  log(`Top movers: ${posts.length} posts in #${channel.name} (of ${result.checked} cards, ${result.windows.d30.usable} had enough sales for 30 days, ${result.windows.d7.usable} for 7 days).`);
 }
 
 module.exports = { computeMovers, buildPost, buildPosts, tick, cardDetails, gameOf };
