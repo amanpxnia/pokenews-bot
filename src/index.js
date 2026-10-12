@@ -4,7 +4,7 @@ const { loadFeeds, fetchFeed, truncate } = require('./feeds');
 const state = require('./state');
 const chase = require('./chase');
 const { isRelevant } = require('./relevance');
-const { sameName } = require('./names');
+const { findChannel } = require('./names');
 const { parseHours, currentSlot } = require('./schedule');
 const tickets = require('./tickets');
 const levels = require('./levels');
@@ -19,11 +19,12 @@ const CHANNEL_ID = process.env.CHANNEL_ID;
 // One news story per slot (local hours). Default: 8 a day, every 3 hours, between the grail slots.
 const NEWS_TIMES = parseHours(process.env.NEWS_TIMES, '1,4,7,10,13,16,19,22');
 const MAX_AGE_HOURS = 48; // don't post stories older than this
-const CHASE_CHANNEL = (process.env.CHASE_CHANNEL ?? 'pulls-of-the-day').replace(/^#/, ''); // empty = off
+// Channels are referenced by ID so renames don't break the bot (a name also works)
+const CHASE_CHANNEL = (process.env.CHASE_CHANNEL ?? '1499117752277794966').replace(/^#/, ''); // 『🏆』gacha-wins; empty = off
 // One grail reveal per slot (local hours). Default: 8 a day, every 3 hours.
 const GRAIL_TIMES = parseHours(process.env.GRAIL_TIMES, '0,3,6,9,12,15,18,21');
 // Top movers: once a day (local hour) in this channel
-const MOVERS_CHANNEL = process.env.MOVERS_CHANNEL || 'market-news';
+const MOVERS_CHANNEL = process.env.MOVERS_CHANNEL || '1499117533196976238'; // 『📈』market-news
 const MOVERS_TIMES = parseHours(process.env.MOVERS_TIMES, '20');
 const FEED_GAP_MS = 3000; // pause between feeds so Reddit doesn't rate-limit us
 const TICK_MS = 5 * 60e3; // how often to check whether a slot has started
@@ -84,9 +85,7 @@ function pickNews(fetched, st, now = Date.now()) {
 async function channelFor(feed, defaultChannel) {
   if (!feed.channel) return defaultChannel;
   const guild = defaultChannel.guild;
-  const ch =
-    guild.channels.cache.get(feed.channel) ||
-    guild.channels.cache.find((c) => sameName(c.name, feed.channel) && c.isTextBased());
+  const ch = findChannel(guild, feed.channel);
   if (!ch) throw new Error(`channel "${feed.channel}" not found in ${guild.name}`);
   const perms = ch.permissionsFor(guild.members.me);
   if (perms && !perms.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks])) {
@@ -259,7 +258,7 @@ async function main() {
 
     const at = (hours) => hours.map((h) => `${h}:00`).join(', ');
     log(`News → #${channel.name}, 1 story at ${at(NEWS_TIMES)}.`);
-    if (CHASE_CHANNEL) log(`Grail reveals → #${CHASE_CHANNEL}, 1 at ${at(GRAIL_TIMES)}.`);
+    if (CHASE_CHANNEL) log(`Grail reveals → #${findChannel(channel.guild, CHASE_CHANNEL)?.name || CHASE_CHANNEL + ' (not found!)'}, 1 at ${at(GRAIL_TIMES)}.`);
     await tick(channel);
     setInterval(() => tick(channel), TICK_MS);
   });

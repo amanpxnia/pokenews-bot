@@ -19,12 +19,13 @@ const {
   TextInputBuilder,
   TextInputStyle,
 } = require('discord.js');
-const { sameName } = require('./names');
+const { findChannel } = require('./names');
 
-const SUPPORT_CHANNEL = process.env.TICKET_PANEL_CHANNEL || 'support';
-const CATEGORY = process.env.TICKET_CATEGORY || 'Help';
+// Channel/category IDs (names also work), so renames don't break tickets
+const SUPPORT_CHANNEL = process.env.TICKET_PANEL_CHANNEL || '1501139190325186631'; // 『🎫』support-ticket
+const CATEGORY = process.env.TICKET_CATEGORY || '1501139157299236864'; // HELP ═══
 const STAFF_ROLES = (process.env.TICKET_STAFF_ROLES || 'Support,Moderators').split(',').map((r) => r.trim());
-const LOG_CHANNEL = process.env.TICKET_LOG_CHANNEL || 'moderator-only';
+const LOG_CHANNEL = process.env.TICKET_LOG_CHANNEL || '1498984165360533528'; // 『🛡️』moderator-only
 
 const TOPICS = {
   order: { label: 'Order / Shipping', emoji: '📦', description: 'Shipping requests, tracking, damaged or missing cards' },
@@ -80,7 +81,7 @@ const panelMessage = () => ({
 
 /** Post the ticket panel in #support, or update the bot's existing one (e.g. when topics change). */
 async function ensurePanel(guild, log) {
-  const channel = guild.channels.cache.find((c) => sameName(c.name, SUPPORT_CHANNEL) && c.isTextBased());
+  const channel = findChannel(guild, SUPPORT_CHANNEL);
   if (!channel) return log(`  ! tickets: #${SUPPORT_CHANNEL} not found`);
   const recent = await channel.messages.fetch({ limit: 25 });
   const existing = recent.find(
@@ -141,7 +142,7 @@ async function submitForm(interaction) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const number = nextNumber(guild);
-  const category = guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && sameName(c.name, CATEGORY));
+  const category = findChannel(guild, CATEGORY, ChannelType.GuildCategory);
   const channel = await guild.channels.create({
     name: `${number}-${topicKey}-${user.username}`.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 90),
     type: ChannelType.GuildText,
@@ -220,7 +221,7 @@ async function remove(interaction, log) {
       `[${m.createdAt.toISOString().slice(0, 16).replace('T', ' ')}] ${m.author.tag}: ${m.content}` +
       (m.embeds[0]?.description ? ` | ${m.embeds[0].title || ''}: ${m.embeds[0].description}` : '') +
       (m.attachments.size ? ' ' + [...m.attachments.values()].map((a) => a.url).join(' ') : '');
-    const logChannel = channel.guild.channels.cache.find((c) => sameName(c.name, LOG_CHANNEL) && c.isTextBased());
+    const logChannel = findChannel(channel.guild, LOG_CHANNEL);
     await logChannel?.send({
       content: `📄 Transcript of **#${channel.name}** (${channel.topic || ''}), deleted by ${interaction.user.tag}`,
       files: [new AttachmentBuilder(Buffer.from(msgs.map(line).join('\n') || '(empty)'), { name: `${channel.name}.txt` })],

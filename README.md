@@ -4,7 +4,7 @@ A Discord bot for the Card Outpost server. It posts:
 
 - **News:** 8 stories a day (1 every 3 hours) to the news channel, as `🚨 BREAKING` cards with no links. A strict filter only allows stories about **Pokémon, One Piece, baseball or basketball cards / TCG**. Video game, anime, other sports and general news are skipped. Each slot picks the newest qualifying story across all sources, and the same story from two sources is only posted once.
 - **Grail reveals:** 8 a day (1 every 3 hours, between the news slots), with a "GRAIL PULLED" graphic. No @everyone ping.
-- **Top movers:** once a day (20:00) in #market-news: the 5 showroom cards whose median sale price rose most over the last 30 days vs. the 60 days before (at least 2 sales in each window), plus the biggest drop, as one post and one graphic per card (same style as grail reveals). Data comes from each card's sales history on cardoutpost.com. Settings: `MOVERS_CHANNEL`, `MOVERS_TIMES`, `MOVERS_MIN_PRICE` (1000), `MOVERS_MAX_PRICE` (10000). Switch: `topMovers` in `features.json`.
+- **Top movers:** once a day (20:00) in #market-news, over two windows: **30 days** (median sale in the last 30 days vs. the 60 days before) and **7 days** (last 7 days vs. the 30 days before), each needing at least 2 sales in both periods. For each window it posts the top riser(s) and the biggest drop, one post and one graphic per card. Data comes from each card's sales history on cardoutpost.com. Settings: `MOVERS_CHANNEL`, `MOVERS_TIMES`, `MOVERS_TOP` (risers per window, default 1), `MOVERS_MIN_PRICE` (1000), `MOVERS_MAX_PRICE` (10000). Switch: `topMovers` in `features.json`.
 - **Memes:** at most 1 per news slot, to #memes.
 
 - **MEE6 replacements** (switched on in `features.json`):
@@ -51,10 +51,13 @@ npm start
 
 ## Settings (`.env`)
 
+Channels are set by **ID** (right-click a channel → Copy Channel ID) so renaming a channel doesn't break the bot. Names still work too.
+
+
 | Variable | Default | What it does |
 |---|---|---|
 | `NEWS_TIMES` | 1,4,7,10,13,16,19,22 | Local hours (0–23) to post 1 news story |
-| `CHASE_CHANNEL` | pulls-of-the-day | Channel for grail reveals; empty = off |
+| `CHASE_CHANNEL` | 1499117752277794966 (『🏆』gacha-wins) | Channel for grail reveals, by ID (a name also works); empty = off |
 | `GRAIL_TIMES` | 0,3,6,9,12,15,18,21 | Local hours (0–23) to post 1 grail reveal |
 | `GRAIL_MIN_PRICE` | 1500 | Lowest card value (USD) for grail reveals |
 | `GRAIL_MAX_PRICE` | 10000 | Card value must be under this, so every reveal also appears in the showroom's "God-Tier Pulls" list |
