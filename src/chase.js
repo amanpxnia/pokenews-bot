@@ -110,8 +110,13 @@ function categorize(label) {
   return 'other';
 }
 
-/** For sports cards: basketball if the label says so, otherwise baseball (most vintage Topps is baseball). */
-const sportOf = (label) => (/BASKETBALL|\bNBA\b|\bWNBA\b|HOOPS|PRIZM/i.test(label) ? 'basketball' : 'baseball');
+// Basketball cards don't always say "basketball" on the label or set (e.g. "1997 Skybox Z-Force"),
+// so also recognise basketball-only brands and well-known players by name.
+const BASKETBALL =
+  /BASKETBALL|\bNBA\b|\bWNBA\b|HOOPS|SKYBOX|Z-FORCE|\bJORDAN\b|KOBE|LEBRON|SHAQ|O'?NEAL|IVERSON|DUNCAN|CURRY|DURANT|GIANNIS|DONCIC|WEMBANYAMA|CAITLIN CLARK|ANTHONY EDWARDS|LARRY BIRD|MAGIC JOHNSON|KAREEM|CHAMBERLAIN|BILL RUSSELL|NOWITZKI|GARNETT|VINCE CARTER|DWYANE WADE|JA MORANT|\bZION\b|BUECKERS|ANGEL REESE|COOPER FLAGG|HAKEEM|BARKLEY|PIPPEN|RODMAN|MCGRADY|YAO MING|STEVE NASH|TATUM|JOKIC/i;
+
+/** For sports cards: basketball if the label, set or player name says so, otherwise baseball. */
+const sportOf = (...texts) => (texts.some((t) => BASKETBALL.test(t || '')) ? 'basketball' : 'baseball');
 
 // Game tag shown on a reveal. Pokémon uses the server's animated :pokemon_headbang: emoji.
 const GAME_TAGS = { pokemon: '<a:pokemon_headbang:1501141806916702270> Pokémon', onepiece: '🏴‍☠️ One Piece', baseball: '⚾ Baseball', basketball: '🏀 Basketball' };
@@ -147,10 +152,13 @@ async function findCard(pool, wanted, recent, dir, cache) {
         checked++;
         const label = await readLabel(photo);
         const category = categorize(label);
-        cache[card.id] = { category, year: yearOf(label), ...(category === 'sports' && { sport: sportOf(label) }) };
+        cache[card.id] = { category, year: yearOf(label), ...(category === 'sports' && { sport: sportOf(label, card.name) }) };
       }
       const info = cache[card.id];
-      if (info.category === wanted) return { card, year: info.year, game: wanted === 'sports' ? info.sport || 'baseball' : wanted, photo };
+      if (info.category === wanted) {
+        const game = wanted === 'sports' ? (info.sport === 'basketball' ? 'basketball' : sportOf(card.name)) : wanted;
+        return { card, year: info.year, game, photo };
+      }
     } catch (err) {
       console.error(`  ! skipped ${card.name}: ${err.message}`);
     }
@@ -255,4 +263,4 @@ async function postChase(send, hours = []) {
   return grail;
 }
 
-module.exports = { postChase, prepareGrail, fetchPool, isDue, categorize, prettyName, GAME_TAGS, MIX, MIN_PRICE, MAX_PRICE };
+module.exports = { postChase, prepareGrail, fetchPool, isDue, categorize, prettyName, sportOf, GAME_TAGS, MIX, MIN_PRICE, MAX_PRICE };

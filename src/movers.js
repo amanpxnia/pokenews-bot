@@ -11,7 +11,7 @@ const path = require('path');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const { currentSlot } = require('./schedule');
-const { prettyName, GAME_TAGS } = require('./chase');
+const { prettyName, sportOf, GAME_TAGS } = require('./chase');
 
 const run = promisify(execFile);
 const FEED = 'https://www.cardoutpost.com/api/cards/showroom-feed';
@@ -81,11 +81,10 @@ async function cardDetails(id) {
   return { sales: salesJson ? JSON.parse(salesJson[0]) : [], set: decode(attr('Set')), year: attr('Year') };
 }
 
-function gameOf(set = '') {
+function gameOf(set = '', name = '') {
   if (/POK[EÉ]MON/i.test(set)) return 'pokemon';
   if (/ONE\s*PIECE/i.test(set)) return 'onepiece';
-  if (/BASKETBALL|\bNBA\b|HOOPS|PRIZM|THRILL SEEKERS/i.test(set)) return 'basketball';
-  return 'baseball';
+  return sportOf(set, name);
 }
 
 /** Sales/set/year for every pool card, from card pages (reusing a recent cache to spare the site). */
@@ -131,7 +130,7 @@ async function computeMovers(log = () => {}) {
       if (recent.length >= MIN_SALES && before.length >= MIN_SALES) {
         const from = median(before);
         const to = median(recent);
-        rows[key].push({ card, set: d.set, year: d.year, game: gameOf(d.set), from, to, change: (to - from) / from, window: key, through: end });
+        rows[key].push({ card, set: d.set, year: d.year, game: gameOf(d.set, card.name), from, to, change: (to - from) / from, window: key, through: end });
       }
     }
   }
