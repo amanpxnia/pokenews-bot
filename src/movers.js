@@ -121,7 +121,7 @@ async function buildPost(r, label) {
     fs.writeFileSync(photo, Buffer.from(await (await get(r.card.imageUrl)).arrayBuffer()));
     const out = path.join(dir, 'mover.jpg');
     const graphic = {
-      headline: label,
+      headline: label.replace(/\s*#\d+$/, ''), // graphic says "TOP MOVER"; the post text keeps the rank
       name,
       subline: r.year,
       grade: `PSA ${r.card.gradeDisplay}`,
