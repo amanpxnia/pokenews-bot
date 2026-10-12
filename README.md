@@ -9,6 +9,7 @@ A Discord bot for the Card Outpost server. It posts:
 - **MEE6 replacements** (switched on in `features.json`):
   - **Tickets:** a topic menu in #support (Order / Shipping, Withdrawals & Payments, Account & Verification, Partnership / B2B, Other) opens a short form (reference + details), then creates a private `<number>-<topic>-<username>` channel with Claim / Close / Reopen / Delete. Staff roles are pinged when a ticket opens. Deleting posts a transcript to #moderator-only. Settings: `TICKET_PANEL_CHANNEL` (support), `TICKET_CATEGORY` (Help), `TICKET_STAFF_ROLES` (Support,Moderators), `TICKET_LOG_CHANNEL` (moderator-only).
   - **Levels:** 15–25 XP per message (once a minute), MEE6's level curve, level-up messages, `/rank` and `/leaderboard`. Existing MEE6 levels are imported automatically the first time it's switched on.
+  - **gm reactions:** every message in #gm gets one random reaction: :pokemon:, 🏴‍☠️, ⚾ or 🏀 (`GM_CHANNEL`, `GM_REACTIONS`).
   - **Member counter:** keeps the "Total Members: 1.47K" channel name up to date.
 
 **Sources (edit `feeds.json` to change):**

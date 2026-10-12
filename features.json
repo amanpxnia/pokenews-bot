@@ -1,5 +1,6 @@
 {
   "tickets": true,
   "levels": false,
-  "memberCounter": false
+  "memberCounter": false,
+  "gmReactions": true
 }

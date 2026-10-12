@@ -9,7 +9,8 @@ const { parseHours, currentSlot } = require('./schedule');
 const tickets = require('./tickets');
 const levels = require('./levels');
 const counter = require('./counter');
-// MEE6 replacements, switched on in features.json: tickets, levels, memberCounter
+const gm = require('./gm');
+// MEE6 replacements, switched on in features.json: tickets, levels, memberCounter, gmReactions
 const FEATURES = require('../features.json');
 
 const TOKEN = process.env.DISCORD_TOKEN;
@@ -214,7 +215,9 @@ async function main() {
   });
 
   client.on(Events.MessageCreate, async (message) => {
-    if (!FEATURES.levels || !message.guild || message.author.bot || message.system) return;
+    if (!message.guild || message.author.bot || message.system) return;
+    if (FEATURES.gmReactions) await gm.onMessage(message, log);
+    if (!FEATURES.levels) return;
     const level = levels.onMessage(message.author.id, message.author.username);
     if (level) {
       await message.channel
