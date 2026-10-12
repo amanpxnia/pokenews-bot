@@ -10,7 +10,8 @@ const tickets = require('./tickets');
 const levels = require('./levels');
 const counter = require('./counter');
 const gm = require('./gm');
-// MEE6 replacements, switched on in features.json: tickets, levels, memberCounter, gmReactions
+const movers = require('./movers');
+// MEE6 replacements, switched on in features.json: tickets, levels, memberCounter, gmReactions, topMovers
 const FEATURES = require('../features.json');
 
 const TOKEN = process.env.DISCORD_TOKEN;
@@ -21,6 +22,9 @@ const MAX_AGE_HOURS = 48; // don't post stories older than this
 const CHASE_CHANNEL = (process.env.CHASE_CHANNEL ?? 'pulls-of-the-day').replace(/^#/, ''); // empty = off
 // One grail reveal per slot (local hours). Default: 8 a day, every 3 hours.
 const GRAIL_TIMES = parseHours(process.env.GRAIL_TIMES, '0,3,6,9,12,15,18,21');
+// Top movers: once a day (local hour) in this channel
+const MOVERS_CHANNEL = process.env.MOVERS_CHANNEL || 'market-news';
+const MOVERS_TIMES = parseHours(process.env.MOVERS_TIMES, '20');
 const FEED_GAP_MS = 3000; // pause between feeds so Reddit doesn't rate-limit us
 const TICK_MS = 5 * 60e3; // how often to check whether a slot has started
 const RECENT_TITLES = 300; // remember this many posted headlines to skip the same story from another source
@@ -153,6 +157,11 @@ async function tick(channel) {
   try {
     await grailTick(channel).catch((e) => log('  ! grail failed:', e.message));
     await newsTick(channel).catch((e) => log('  ! news failed:', e.message));
+    if (FEATURES.topMovers) {
+      await channelFor({ channel: MOVERS_CHANNEL }, channel)
+        .then((target) => movers.tick(target, MOVERS_TIMES, log))
+        .catch((e) => log('  ! top movers failed:', e.message));
+    }
   } finally {
     busy = false;
   }

@@ -4,6 +4,7 @@ A Discord bot for the Card Outpost server. It posts:
 
 - **News:** 8 stories a day (1 every 3 hours) to the news channel, as `🚨 BREAKING` cards with no links. A strict filter only allows stories about **Pokémon, One Piece, baseball or basketball cards / TCG**. Video game, anime, other sports and general news are skipped. Each slot picks the newest qualifying story across all sources, and the same story from two sources is only posted once.
 - **Grail reveals:** 8 a day (1 every 3 hours, between the news slots), with a "GRAIL PULLED" graphic. No @everyone ping.
+- **Top movers:** once a day (20:00) in #market-news: the 5 showroom cards whose median sale price rose most over the last 30 days vs. the 60 days before (at least 2 sales in each window), plus the biggest drop, with a graphic. Data comes from each card's sales history on cardoutpost.com. Settings: `MOVERS_CHANNEL`, `MOVERS_TIMES`, `MOVERS_MIN_PRICE` (1000), `MOVERS_MAX_PRICE` (10000). Switch: `topMovers` in `features.json`.
 - **Memes:** at most 1 per news slot, to #memes.
 
 - **MEE6 replacements** (switched on in `features.json`):
@@ -106,6 +107,7 @@ Every push to `main` redeploys automatically.
 
 - `src/index.js` – connects to Discord, runs the news / grail / meme schedule
 - `src/relevance.js` – the strict news topic filter
+- `src/movers.js`, `scripts/render_movers.py` – daily top movers post and graphic
 - `src/tickets.js`, `src/levels.js`, `src/counter.js` – MEE6 replacements, switched on in `features.json`
 - `src/schedule.js` – daily posting slots
 - `src/feeds.js` – fetches and cleans up feed items (titles, summaries, images)

@@ -2,5 +2,6 @@
   "tickets": true,
   "levels": false,
   "memberCounter": false,
-  "gmReactions": true
+  "gmReactions": true,
+  "topMovers": true
 }
